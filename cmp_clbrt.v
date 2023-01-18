@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-module #(1) a(input x, input y, output z); assign z = x & y; endmodule module b(input x, input y, output z); assign z = x | y; endmodule   module c(input x, input y, output z); assign z = x ^ y; endmodule
+//module #(1) a(input x, input y, output z); assign z = x & y; endmodule module b(input x, input y, output z); assign z = x | y; endmodule   module c(input x, input y, output z); assign z = x ^ y; endmodule
 
 module multiline ( input a,
 input b,
