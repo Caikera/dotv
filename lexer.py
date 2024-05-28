@@ -90,6 +90,11 @@ class Token(Enum):
     Case = auto()
     EndCase = auto()
     For = auto()
+    String = auto()
+    ShortReal = auto()
+    ShortInt = auto()
+    LongInt = auto()
+    Byte = auto()
 
     BackQuote = auto()  # '
     Sharp = auto()  # #
@@ -163,7 +168,33 @@ class Lexer:
         self.directive: str = ""
         self.identifier: str = ""
         self.lineComment: str = ""
-        self.blockComment: List[str] = ""
+        self.blockComment: List[str] = []
+
+        self.stack: List[Tuple[int, int]] = []
+
+    def push(self):
+        self.stack.append((self.ldx, self.cdx))
+
+    def pop(self):
+        self.ldx, self.cdx = self.stack.pop()
+
+    def token(self):
+        return self.curTok
+
+    def next(self):
+        return self.get_next_tok()
+
+    def peek(self, n: int = 1):
+        assert n >= 1
+
+        self.push()
+        tok = None
+        for _ in range(n):
+            tok = self.get_next_tok()
+            if tok == Token.EOF:
+                break
+        self.pop()
+        return tok
 
     def get_next_tok(self):
         while True:
@@ -718,6 +749,16 @@ class Lexer:
                                 self.curTok = Token.PicoSecond
                             elif identifier == "fs":
                                 self.curTok = Token.FemtoSecond
+                            elif identifier == "string":
+                                self.curTok = Token.String
+                            elif identifier == "shortint":
+                                self.curTok = Token.ShortInt
+                            elif identifier == "longint":
+                                self.curTok = Token.LongInt
+                            elif identifier == "shortreal":
+                                self.curTok = Token.ShortReal
+                            elif identifier == "byte":
+                                self.curTok = Token.Byte
                             else:
                                 self.curTok = Token.Identifier
                                 self.identifier = identifier
