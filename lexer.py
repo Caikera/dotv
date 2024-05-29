@@ -45,6 +45,7 @@ keywords = ['module', 'endmodule', 'reg', 'wire', 'var', 'logic', 'bit', 'signed
 
 class Token(Enum):
     Number = auto()
+    TimeLiteral = auto()
     StringLiteral = auto()
     Identifier = auto()
     Directive = auto()
@@ -164,6 +165,7 @@ class Lexer:
         self.curTok: Token = None
         self.curTokPos: Tuple[int, int] = None
         self.number: str = ""
+        self.timeLiteral: str = ""
         self.stringLiteral: str = ""
         self.directive: str = ""
         self.identifier: str = ""
@@ -658,6 +660,32 @@ class Lexer:
                                 cdx += 1
                                 literal += char
                                 continue
+                            elif char == 'm' or char == 'u' or char == 'n' or char == 'p' or char == 'f':
+                                unit = char
+                                cdx = self.cdx + 1
+                                char = line[cdx]
+                                if char == 's':
+                                    self.curTokPos = self.ldx, self.cdx
+                                    self.curTok = Token.TimeLiteral
+                                    self.timeLiteral = f"{literal}{unit}s"
+                                    self.ldx = ldx
+                                    self.cdx = cdx
+                                    return self.curTok
+                                else:
+                                    cdx += 1
+                                    self.curTokPos = self.ldx, self.cdx
+                                    self.curTok = Token.Number
+                                    self.number = literal
+                                    self.ldx = ldx
+                                    self.cdx = cdx
+                                    raise InvalidLiteral(*self.curTokPos, literal+char)
+                            elif char == 's':
+                                self.curTokPos = self.ldx, self.cdx
+                                self.curTok = Token.TimeLiteral
+                                self.timeLiteral = f"{literal}s"
+                                self.ldx = ldx
+                                self.cdx = cdx
+                                return self.curTok
                             else:
                                 self.curTokPos = self.ldx, self.cdx
                                 self.curTok = Token.Number

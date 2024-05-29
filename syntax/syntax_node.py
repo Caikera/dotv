@@ -103,7 +103,21 @@ class IdentifierList(SyntaxNode):
 
 
 """ Expression """
+"""
+expression ::= identifier
+             | hierarchy_reference
+             | literal
+             | parenthesized
+             | unary
+             | binary
+             | ternary
+             | concatenations
+             | index
+             | range
+             | indexed_range
+             | call
 
+"""
 
 class Expression(SyntaxNode):
     """
@@ -220,8 +234,152 @@ class IndexedRange(Expression):
         return f"{src}[{base}{self.direction}:{width}]"
 
 
-class ConstantExpression(SyntaxNode):
-    ...  # todo
+class Call(Expression):
+    pass
+
+
+class CallInOrder(Call):
+    def __init__(self, routine: Identifier, args: List[Expression]):
+        super().__init__()
+        self.routine: Identifier = routine
+        self.args: List[Expression] = args
+
+    def get_str(self) -> str:
+        routine = self.routine.simple_str()
+        return f"{{call_in_order: {routine}({', '.join([a.simple_str() for a in self.args])})}}"
+
+    def simple_str(self) -> str:
+        routine = self.routine.simple_str()
+        return f"{routine}({', '.join([a.simple_str() for a in self.args])})"
+
+
+class CallByName(Call):
+    def __init__(self, routine: Identifier, name_val_pairs: List[Union[Identifier, Expression]]):
+        super().__init__()
+        self.routine: Identifier = routine
+        self.name_val_pairs: List[Union[Identifier, Expression]] = name_val_pairs
+
+    def get_str(self) -> str:
+        routine = self.routine.simple_str()
+        name_val_pairs = ", ".join([f".{n.simple_str()}({v.simple_str()})" for n, v in self.name_val_pairs])
+        return f"{{call_by_name: {routine}({name_val_pairs})}}"
+
+    def simple_str(self) -> str:
+        routine = self.routine.simple_str()
+        name_val_pairs = ", ".join([f".{n.simple_str()}({v.simple_str()})" for n, v in self.name_val_pairs])
+        return f"{routine}({name_val_pairs})"
+
+
+class UnaryOp(Expression):
+    def __init__(self, op: str, expr: Expression):
+        super().__init__()
+        self.op: str = op
+        self.expr: Expression = expr
+
+    def get_str(self) -> str:
+        expr = self.expr.simple_str()
+        return f"{{unary_op: {self.op}{expr}}}"
+
+    def simple_str(self) -> str:
+        expr = self.expr.simple_str()
+        return f"{self.op}{expr}"
+
+
+class BinaryOp(Expression):
+    def __init__(self, op: str, left: Expression, right: Expression):
+        super().__init__()
+        self.op: str = op
+        self.left: Expression = left
+        self.right: Expression = right
+
+    def get_str(self) -> str:
+        left = self.left.simple_str()
+        right = self.right.simple_str()
+        return f"{{binary_op: {left} {self.op} {right}}}"
+
+    def simple_str(self) -> str:
+        left = self.left.simple_str()
+        right = self.right.simple_str()
+        return f"{left} {self.op} {right}"
+
+
+class Ternary(Expression):
+    def __init__(self, condition: Expression, true_expr: Expression, false_expr: Expression):
+        super().__init__()
+        self.condition: Expression = condition
+        self.true_expr: Expression = true_expr
+        self.false_expr: Expression = false_expr
+
+    def get_str(self) -> str:
+        condition = self.condition.simple_str()
+        true_expr = self.true_expr.simple_str()
+        false_expr = self.false_expr.simple_str()
+        return f"{{ternary: {condition} ? {true_expr} : {false_expr}}}"
+
+    def simple_str(self) -> str:
+        condition = self.condition.simple_str()
+        true_expr = self.true_expr.simple_str()
+        false_expr = self.false_expr.simple_str()
+        return f"{condition} ? {true_expr} : {false_expr}"
+
+
+class Parenthesized(Expression):
+    def __init__(self, expr: Expression):
+        super().__init__()
+        self.expr: Expression = expr
+
+    def get_str(self) -> str:
+        expr = self.expr.simple_str()
+        return f"{{parenthesized: ({expr})}}"
+
+    def simple_str(self) -> str:
+        expr = self.expr.simple_str()
+        return f"({expr})"
+
+
+class IdentifierAsExpression(Expression):
+    def __init__(self, identifier: Identifier):
+        super().__init__()
+        self.identifier: Identifier = identifier
+
+    def get_str(self) -> str:
+        identifier = self.identifier.simple_str()
+        return f"{{identifier_as_expression: {identifier}}}"
+
+    def simple_str(self) -> str:
+        identifier = self.identifier.simple_str()
+        return f"{identifier}"
+
+
+class LiteralAsExpression(Expression):
+    def __init__(self, literal: Literal):
+        super().__init__()
+        self.literal: Literal = literal
+
+    def get_str(self) -> str:
+        literal = self.literal.simple_str()
+        return f"{{literal_as_expression: {literal}}}"
+
+    def simple_str(self) -> str:
+        literal = self.literal.simple_str()
+        return f"{literal}"
+
+
+class HierarchyReference(Expression):
+    def __init__(self, nodes: List[Expression]):
+        super().__init__()
+        self.nodes: List[Expression] = nodes
+
+    def get_str(self) -> str:
+        nodes = ".".join([n.simple_str() for n in self.nodes])
+        return f"{{hierarchy_reference: {nodes}}}"
+
+    def simple_str(self) -> str:
+        nodes = ".".join([n.simple_str() for n in self.nodes])
+        return f"{nodes}"
+
+
+ConstantExpression = Expression
 
 
 class PackedDimension(SyntaxNode):
