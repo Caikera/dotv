@@ -75,15 +75,6 @@ class StringLiteral(Literal):
         return f"{{string: self.string}}"
 
 
-class Numeral(SyntaxNode):
-    def __init__(self, numeral: str):
-        super().__init__()
-        self.numeral: str = numeral
-
-    def get_str(self) -> str:
-        return f"{{numeral: self.numeral}}"
-
-
 class Identifier(SyntaxNode):
     def __init__(self, identifier: str):
         super().__init__()
@@ -111,14 +102,69 @@ class IdentifierList(SyntaxNode):
         return ', '.join([i.simple_str() for i in self.identifiers])
 
 
-class Index(SyntaxNode):
+""" Expression """
+
+
+class Expression(SyntaxNode):
+    """
+    refer to IEEE 1800-2017 P1134
+    """
+
+    ...  # todo
+
+
+class Concatenations(SyntaxNode):
+    """
+    refer to IEEE 1800-2017 P1134
+    """
+    ...  # todo
+
+
+class Concatenation(Concatenations):
+    """
+    refer to IEEE 1800-2017 P1134
+    """
+    def __init__(self, exprs: List[Expression]):
+        super().__init__()
+        self.exprs: List[Expression] = exprs
+
+    def get_str(self) -> str:
+        exprs = ', '.join([e.simple_str() for e in self.exprs])
+        return f"{{concatenation: {{{exprs}}}}}"
+
+    def simple_str(self) -> str:
+        exprs = ', '.join([e.simple_str() for e in self.exprs])
+        return f"{{{exprs}}}"
+
+
+class Repeat(Concatenations):
+    """
+    refer to IEEE 1800-2017 P1134: multiple concatenation
+    """
+    def __init__(self, expr: Concatenation, times: Expression):
+        super().__init__()
+        self.expr: Concatenation = expr
+        self.times: Expression = times
+
+    def get_str(self) -> str:
+        expr = self.expr.simple_str()
+        times = self.times.simple_str()
+        return f"{{repeat: {times}{{{expr}}}}}"
+
+    def simple_str(self) -> str:
+        expr = self.expr.simple_str()
+        times = self.times.simple_str()
+        return f"{times}{{{expr}}}"
+
+
+class Index(Expression):
     """
     a[x]
     """
-    def __init__(self, src: SyntaxNode, idx: SyntaxNode):
+    def __init__(self, src: Expression, idx: Expression):
         super().__init__()
-        self.src: SyntaxNode = src
-        self.idx: SyntaxNode = idx
+        self.src: Expression = src
+        self.idx: Expression = idx
 
     def get_str(self) -> str:
         return f"{{index: {self.src}[{self.idx}]}}"
@@ -127,16 +173,16 @@ class Index(SyntaxNode):
         return f"{self.src}[{self.idx}]"
 
 
-class Range(SyntaxNode):
+class Range(Expression):
     """
     a[x:y]
     """
 
-    def __init__(self, src: SyntaxNode, ldx: SyntaxNode, rdx: SyntaxNode):
+    def __init__(self, src: Expression, ldx: Expression, rdx: Expression):
         super().__init__()
-        self.src: SyntaxNode = src
-        self.ldx: SyntaxNode = ldx
-        self.rdx: SyntaxNode = rdx
+        self.src: Expression = src
+        self.ldx: Expression = ldx
+        self.rdx: Expression = rdx
 
     def get_str(self) -> str:
         return f"{{range: {self.src}[{self.ldx}:{self.rdx}]}}"
@@ -145,8 +191,33 @@ class Range(SyntaxNode):
         return f"{self.src}[{self.ldx}:{self.rdx}]"
 
 
-class Expression(SyntaxNode):
-    ...  # todo
+class IndexedRange(Expression):
+    """
+    a[base:+/-width]
+    """
+    def __init__(self,
+                 src: Expression,
+                 base: Expression,
+                 direction: str,
+                 width: Expression):
+
+        super().__init__()
+        self.src: Expression = src
+        self.base: Expression = base
+        self.direction: str = direction
+        self.width: Expression = width
+
+    def get_str(self) -> str:
+        src = self.src.simple_str()
+        base = self.base.simple_str()
+        width = self.width.simple_str()
+        return f"{{indexed_range: {src}[{base}{self.direction}:{width}]}}"
+
+    def simple_str(self) -> str:
+        src = self.src.simple_str()
+        base = self.base.simple_str()
+        width = self.width.simple_str()
+        return f"{src}[{base}{self.direction}:{width}]"
 
 
 class ConstantExpression(SyntaxNode):
