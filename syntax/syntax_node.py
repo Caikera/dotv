@@ -1,6 +1,6 @@
 from abc import abstractmethod, ABC
 from enum import Enum, auto
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Tuple
 
 
 class ValueSet(Enum):
@@ -169,6 +169,30 @@ class Repeat(Concatenations):
         expr = self.expr.simple_str()
         times = self.times.simple_str()
         return f"{times}{{{expr}}}"
+
+
+class IndexRange(Expression):
+    """
+    a[x][y:z]...[m]
+    """
+    def __init__(self, src: Expression, idx_or_ranges: List[Union[Expression, Tuple[Expression, Expression]]]):
+        super().__init__()
+        self.src: Expression = src
+        self.idx_or_ranges: List[Union[Expression, Tuple[Expression, Expression]]] = idx_or_ranges
+
+    def simple_str(self) -> str:
+        src = self.src.simple_str()
+        idx_or_ranges = ''.join([
+            f"[{i_r.simple_str()}]" if isinstance(i_r, Expression)
+            else f"[{i_r[0].simple_str()}:{i_r[1].simple_str()}]"
+            for i_r in self.idx_or_ranges
+        ])
+        return f"{src}{idx_or_ranges}"
+
+    def get_str(self) -> str:
+        return f"{{index_range: {self.simple_str()}}}"
+
+
 
 
 class Index(Expression):
