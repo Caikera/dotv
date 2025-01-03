@@ -59,6 +59,9 @@ class TokenKind(enum.Enum):
     SemiColon = enum.auto()
     At = enum.auto()
     Dot = enum.auto()
+    ScopeResolution = enum.auto()
+    SelfIncrement = enum.auto()
+    SelfDecrement = enum.auto()
     SingleQuote = enum.auto()
     DoubleQuote = enum.auto()
     BackSlash = enum.auto()
@@ -421,6 +424,9 @@ register_token_match("BitAndAssignment", re.compile(r"^"+r"&="))
 register_token_match("BitOrAssignment", re.compile(r"^"+r"\|="))
 register_token_match("BitXorAssignment", re.compile(r"^"+r"\^="))
 register_token_match("Implication", re.compile(r"^"+r"->"))
+register_token_match("ScopeResolution", re.compile(r"^"+r"::"))
+register_token_match("SelfIncrement", re.compile(r"^"+r"\+\+"))
+register_token_match("SelfDecrement", re.compile(r"^"+r"--"))
 
 register_token_match("BackQuote", re.compile(r"^"+r"`"))
 register_token_match("SharpPat", re.compile(r"^"+r"#"))
@@ -565,9 +571,16 @@ class Token:
     rdx: int
     cdx: int
     val: str
+    src: str
+
+    # def __str__(self):
+    #     return f"kind: {self.kind_:<24}, rdx: {self.rdx:<5}, cdx: {self.cdx:<5}, val: {self.val}"
 
     def __str__(self):
-        return f"kind: {self.kind_:<24}, rdx: {self.rdx:<5}, cdx: {self.cdx:<5}, val: {self.val}"
+        return self.src
+
+    def __repr__(self):
+        return self.__str__()
 
     @property
     def kind_(self) -> TokenKind:
@@ -590,7 +603,7 @@ class Lexer:
         lines = context.split(self.eol)
         return [len(lines[ldx]) + 1 if ldx != len(lines)-1 else len(lines[ldx]) for ldx in range(len(lines))]
 
-    def get_rcdx_from_idx(self, idx: int) -> int:
+    def get_rcdx_from_idx(self, idx: int) -> (int, int):
         rdx = bisect.bisect_right(self.accumulated_char_num, idx)
         if rdx != 0:
             cdx = idx - self.accumulated_char_num[rdx - 1]
@@ -603,7 +616,7 @@ class Lexer:
             remains = self.context[self.idx:]
             rdx, cdx = self.get_rcdx_from_idx(self.idx)
             if not remains:
-                token = Token(kind="EOF", rdx=rdx, cdx=cdx, val="\0")
+                token = Token(kind="EOF", rdx=rdx, cdx=cdx, val="\0", src="\0")
                 print(f"idx: {self.idx:<5}, {token}")
                 self.tokens.append(token)
                 break
@@ -617,7 +630,7 @@ class Lexer:
                 re_pat = token_match[1]
                 _ = re_pat.search(remains)
                 if _ is not None and _.start() == 0:
-                    token = Token(kind=token_match[0], rdx=rdx, cdx=cdx, val=_.group(0))
+                    token = Token(kind=token_match[0], rdx=rdx, cdx=cdx, val=_.group(0), src=_.group(0))
                     print(f"idx: {self.idx:<5}, {token}")
                     self.tokens.append(token)
                     self.idx += len(_.group(0))
