@@ -369,7 +369,7 @@ literal_pat_1 = re.compile(r"^"+r"(?:[0-9]+\.)?[0-9]+(?:e[+-]?[0-9]+)?")
 literal_pat_2 = re.compile(r"^"+r"[_0-9]+")
 literal_pat = re.compile(r"^"+re_or(literal_pat_0.pattern, literal_pat_1.pattern, literal_pat_2))
 string_literal_pat = re.compile(r"^"+r'"(?:\\.|[^"\\])*(?:\\\n(?:\\.|[^"\\])*)*"')
-identifier_pat = re.compile(r"^"+r"[a-zA-Z_][a-zA-Z0-9_]*")
+identifier_pat = re.compile(r"^"+r"[\$a-zA-Z_][a-zA-Z0-9_]*")
 directive_pat = re.compile(r"^"+r"`"+identifier_pat.pattern[1:])
 line_comment_pat = re.compile(r"^"+r"//.*(?=\n|$)")
 block_comment_pat = re.compile(r"^"+r"/\*.*?\*/", re.DOTALL)
@@ -406,9 +406,6 @@ register_token_match("Equivalence", re.compile(r"^"+r"<->"))
 register_token_match("DoubleBackQuote", re.compile(r"^"+r"``"))
 register_token_match("Pow", re.compile(r"^"+r"\*\*"))
 register_token_match("Equal", re.compile(r"^"+r"=="))
-register_token_match("InEqual", re.compile(r"^"+r"!="))
-register_token_match("LessThan", re.compile(r"^"+r"<"))
-register_token_match("GreaterThan", re.compile(r"^"+r">"))
 register_token_match("LessEqual", re.compile(r"^"+r"<="))
 register_token_match("GreaterEqual", re.compile(r"^"+r">="))
 register_token_match("LogicAnd", re.compile(r"^"+r"&&"))
@@ -444,7 +441,6 @@ register_token_match("Dot", re.compile(r"^"+r"\."))
 register_token_match("SingleQuote", re.compile(r"^"+r"'"))
 register_token_match("DoubleQuote", re.compile(r"^"+r'"'))
 register_token_match("BackSlash", re.compile(r"^"+r"\\"))
-register_token_match("Dollar", re.compile(r"^"+r"\$"))
 register_token_match("QuestionMark", re.compile(r"^"+r"\?"))
 register_token_match("Assignment", re.compile(r"^"+r"="))
 register_token_match("Add", re.compile(r"^"+r"\+"))
@@ -457,6 +453,9 @@ register_token_match("BitOr", re.compile(r"^"+r"\|"))
 register_token_match("BitXor", re.compile(r"^"+r"\^"))
 register_token_match("BitNot", re.compile(r"^"+r"~"))
 register_token_match("LogicNot", re.compile(r"^"+r"!"))
+register_token_match("InEqual", re.compile(r"^"+r"!="))
+register_token_match("LessThan", re.compile(r"^"+r"<"))
+register_token_match("GreaterThan", re.compile(r"^"+r">"))
 
 """ pairs """
 register_token_match("Begin", re.compile(r"^"+r"\bbegin\b"))
@@ -560,9 +559,10 @@ for word in reserved_words:
     if word not in implemented_reserved_word:
         register_token_match(word[0].upper()+word[1:], re.compile(r"^"+fr"\b{word}\b"))
 register_token_match("Identifier", identifier_pat)
+register_token_match("Dollar", re.compile(r"^"+r"\$"))
 register_token_match("EOF", re.compile('\0'))
 
-print(f"{implemented_reserved_word}")
+#print(f"{implemented_reserved_word}")
 
 
 @dataclasses.dataclass
@@ -617,7 +617,7 @@ class Lexer:
             rdx, cdx = self.get_rcdx_from_idx(self.idx)
             if not remains:
                 token = Token(kind="EOF", rdx=rdx, cdx=cdx, val="\0", src="\0")
-                print(f"idx: {self.idx:<5}, {token}")
+                # print(f"idx: {self.idx:<5}, {token}")
                 self.tokens.append(token)
                 break
             matched = False
@@ -631,7 +631,7 @@ class Lexer:
                 _ = re_pat.search(remains)
                 if _ is not None and _.start() == 0:
                     token = Token(kind=token_match[0], rdx=rdx, cdx=cdx, val=_.group(0), src=_.group(0))
-                    print(f"idx: {self.idx:<5}, {token}")
+                    # print(f"idx: {self.idx:<5}, {token}")
                     self.tokens.append(token)
                     self.idx += len(_.group(0))
                     matched = True

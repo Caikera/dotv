@@ -1,8 +1,13 @@
 import re
+from typing import TYPE_CHECKING
 
 from lexer_ import Lexer, Token, TokenKind
 from log import log
 from syntax.node_ import *
+
+
+if TYPE_CHECKING:
+    from syntax.expression import Expression
 
 
 class ParserError(Exception):
@@ -1233,6 +1238,10 @@ class Parser:
                                                      port_name=port_name,
                                                      port_value=port_val))
         return port_connect_node
+
+    def parse_expression_locally(self, ctx: Context) -> 'Expression':
+        from pratt import parse_expression
+        return parse_expression(depth=0, src_info=self.source_info, ctx=ctx, ctx_bp=0)
 
 
 if __name__ == "__main__":

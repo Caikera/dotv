@@ -18,6 +18,54 @@ class SyntaxNode:
     def __repr__(self) -> str:
         return self.get_str()
 
+    @property
+    def tokens_str(self) -> str:
+        return ''.join(map(lambda x: x.src, self.tokens))
+
+
+is_first_tuple = True
+
+
+def node_as_dict(obj):
+    if isinstance(obj, SyntaxNode):
+        d = {}
+        d["_type_"] = obj.__class__.__name__
+        d["_str_"] = obj.tokens_str
+        for attr, value in obj.__dict__.items():
+            d[attr] = node_as_dict(value)
+        return d
+    elif isinstance(obj, Token):
+        d = {}
+        for attr, value in obj.__dict__.items():
+            d[attr] = node_as_dict(value)
+        return d
+    elif isinstance(obj, list):
+        l = []
+        for c in obj:
+            l.append(node_as_dict(c))
+        return l
+    elif isinstance(obj, tuple):
+        global is_first_tuple
+        if is_first_tuple:
+            is_first_tuple = False
+        print(f"===== tuple: {obj}")
+        t = tuple()
+        for c in obj:
+            t = t + (node_as_dict(c),)
+        return t
+    elif isinstance(obj, set):
+        s = set()
+        for c in obj:
+            s.add(node_as_dict(c))
+        return s
+    elif isinstance(obj, dict):
+        d = {}
+        for k, v in obj.items():
+            d[node_as_dict(k)] = node_as_dict(v)
+        return d
+    else:
+        return obj
+
 
 @dataclasses.dataclass
 class ModuleNode(SyntaxNode):

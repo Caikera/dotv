@@ -1,7 +1,7 @@
 import dataclasses
 
 from lexer_ import Token
-from node_ import SyntaxNode
+from syntax.node_ import SyntaxNode
 
 
 @dataclasses.dataclass
@@ -13,16 +13,31 @@ class Expression(SyntaxNode):
 class Identifier(Expression):
     identifier: Token
 
+    @property
+    def tokens_str(self) -> str:
+        return self.identifier.src
 
 
 @dataclasses.dataclass
 class Literal(Expression):
     literal: Token
 
+    @property
+    def tokens_str(self) -> str:
+        return self.literal.src
+
 
 @dataclasses.dataclass
 class UnaryOperator(Expression):
     expr: Expression
+
+    @property
+    def symbol(self) -> str:
+        return ''
+
+    @property
+    def tokens_str(self) -> str:
+        return f"{self.symbol}『{self.expr.tokens_str}』"
 
 
 @dataclasses.dataclass
@@ -30,180 +45,268 @@ class BinaryOperator(Expression):
     left: Expression
     right: Expression
 
+    @property
+    def symbol(self) -> str:
+        return ''
+
+    @property
+    def tokens_str(self) -> str:
+        return f"『{self.left.tokens_str}』{self.symbol}『{self.right.tokens_str}』"
+
 
 @dataclasses.dataclass
 class UnaryPlus(UnaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '+'
 
 
 @dataclasses.dataclass
 class UnaryMinus(UnaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '-'
 
 
 @dataclasses.dataclass
 class BitNot(UnaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '~'
 
 
 @dataclasses.dataclass
 class ReducedAnd(UnaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '&'
 
 
 @dataclasses.dataclass
 class ReducedOr(UnaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '|'
 
 
 @dataclasses.dataclass
 class ReducedXor(UnaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '^'
 
 
 @dataclasses.dataclass
 class LogicNot(UnaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '!'
 
 
 @dataclasses.dataclass
 class SelfIncrement(UnaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '++'
+
+    @property
+    def tokens_str(self) -> str:
+        return f"『{self.expr.tokens_str}』{self.symbol}"
 
 
 @dataclasses.dataclass
 class SelfDecrement(UnaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '--'
+
+    @property
+    def tokens_str(self) -> str:
+        return f"『{self.expr.tokens_str}』{self.symbol}"
 
 
 @dataclasses.dataclass
 class BitAnd(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '&'
 
 
 @dataclasses.dataclass
 class BitOr(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '|'
 
 
 @dataclasses.dataclass
 class BitXor(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '^'
 
 
 @dataclasses.dataclass
 class LogicAnd(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '&&'
 
 
 @dataclasses.dataclass
 class LogicOr(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '||'
 
 
 @dataclasses.dataclass
 class Add(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '+'
 
 
 @dataclasses.dataclass
 class Sub(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '-'
 
 
 @dataclasses.dataclass
 class Mul(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '*'
 
 
 @dataclasses.dataclass
-class Dvd(BinaryOperator):
-    pass
+class Div(BinaryOperator):
+    @property
+    def symbol(self) -> str:
+        return '/'
 
 
 @dataclasses.dataclass
 class Mod(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '%'
 
 
 @dataclasses.dataclass
 class Pow(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '**'
 
 
 @dataclasses.dataclass
 class LogicLeftShift(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '<<'
 
 
 @dataclasses.dataclass
 class LogicRightShift(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '>>'
 
 
 @dataclasses.dataclass
 class ArithmeticLeftShift(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '<<<'
 
 
 @dataclasses.dataclass
 class ArithmeticRightShift(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '>>>'
 
 
 @dataclasses.dataclass
 class Equal(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '=='
 
 
 @dataclasses.dataclass
 class InEqual(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '!='
 
 
 @dataclasses.dataclass
 class GreaterThan(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '>'
 
 
 @dataclasses.dataclass
 class LessThan(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '<'
 
 
 @dataclasses.dataclass
 class GreaterThanEqual(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '>='
 
 
 @dataclasses.dataclass
 class LessThanEqual(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '<='
 
 
 @dataclasses.dataclass
 class CaseEqual(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '==='
 
 
 @dataclasses.dataclass
 class CaseInEqual(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '!=='
 
 
 @dataclasses.dataclass
 class WildcardEqual(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '==?'
 
 
 @dataclasses.dataclass
 class WildcardInEqual(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '!=?'
 
 
 @dataclasses.dataclass
 class Parenthesis(Expression):
     expression: Expression
+
+    @property
+    def tokens_str(self) -> str:
+        return f"(『{self.expression.tokens_str}』)"
 
 
 @dataclasses.dataclass
@@ -212,21 +315,33 @@ class Slice(Expression):
     left_idx: Expression
     right_idx: Expression
 
+    @property
+    def tokens_str(self) -> str:
+        return f"『{self.src.tokens_str}』[『{self.left_idx.tokens_str}』:『{self.right_idx.tokens_str}』]"
+
 
 @dataclasses.dataclass
 class Index(Expression):
     src: Expression
     idx: Expression
 
+    @property
+    def tokens_str(self) -> str:
+        return f"『{self.src.tokens_str}』[『{self.idx.tokens_str}』]"
+
 
 @dataclasses.dataclass
 class ScopeResolution(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '::'
 
 
 @dataclasses.dataclass
 class MemberAccess(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '.'
 
 
 @dataclasses.dataclass
@@ -235,85 +350,147 @@ class Conditional(Expression):
     true_expr: Expression
     false_expr: Expression
 
+    @property
+    def tokens_str(self) -> str:
+        return f"『{self.condition.tokens_str}』?"\
+               f"『{self.true_expr.tokens_str}』:"\
+               f"『{self.false_expr.tokens_str}』]"
+
 
 @dataclasses.dataclass
 class Assignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '='
 
 
 @dataclasses.dataclass
 class AddAssignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '+='
 
 
 @dataclasses.dataclass
 class SubAssignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '-='
 
 
 @dataclasses.dataclass
 class MulAssignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '*='
 
 
 @dataclasses.dataclass
-class DvdAssignment(BinaryOperator):
-    pass
+class DivAssignment(BinaryOperator):
+    @property
+    def symbol(self) -> str:
+        return '/='
 
 
 @dataclasses.dataclass
 class ModAssignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '%='
 
 
 @dataclasses.dataclass
 class BitAndAssignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '&='
 
 
 @dataclasses.dataclass
 class BitOrAssignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '|='
 
 
 @dataclasses.dataclass
 class BitXorAssignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '^='
 
 
 @dataclasses.dataclass
 class LogicLeftShiftAssignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '<<='
 
 
 @dataclasses.dataclass
 class LogicRightShiftAssignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '>>='
 
 
 @dataclasses.dataclass
 class ArithmeticLeftShiftAssignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '<<<='
 
 
 @dataclasses.dataclass
 class ArithmeticRightShiftAssignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '>>>='
 
 
 @dataclasses.dataclass
 class NonBlockingAssignment(BinaryOperator):
-    pass
+    @property
+    def symbol(self) -> str:
+        return '<='
 
 
 @dataclasses.dataclass
 class Concatenation(Expression):
-    exprs: list[Expression]
+    args: 'Args'
+
+    @property
+    def tokens_str(self) -> str:
+        return f"{{『{self.args.tokens_str}』}}"
 
 
 @dataclasses.dataclass
 class Repeat(Expression):
-    expr: Expression
     times: Expression
+    expr: Expression
+
+    @property
+    def tokens_str(self) -> str:
+        return f"{{『{self.times.tokens_str}』{{『{self.expr.tokens_str}』}}}}"
+
+
+@dataclasses.dataclass
+class Args(Expression):
+    args: list[Expression]
+
+    @property
+    def tokens_str(self) -> str:
+        return ', '.join(map(lambda x: f"『{x.tokens_str}』", self.args))
+
+
+@dataclasses.dataclass
+class FuncCall(Expression):
+    identifier: Expression
+    args: Args
+
+    @property
+    def tokens_str(self) -> str:
+        return f"『{self.identifier.tokens_str}』(『{self.args.tokens_str}』)"
+
 
 
