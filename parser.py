@@ -5,9 +5,7 @@ from lexer_ import Lexer, Token, TokenKind
 from log import log
 from syntax.node_ import *
 
-
-if TYPE_CHECKING:
-    from syntax.expression import Expression
+from syntax.expression import *
 
 
 class ParserError(Exception):
@@ -24,13 +22,17 @@ class SourceInfo:
         self.path: str = path
 
     def error_context(self, rdx: int, cdx: int):
-        msg = [f"line: {rdx+1}, column: {cdx+1}, file: {self.path}"]
+        msg = [f"line: {rdx+1}, column: {cdx+1}, file: {self.path}\n"]
+        if rdx > 1:
+            msg.append(f"    {self.lines[rdx-2]}\n")
         if rdx > 0:
             msg.append(f"    {self.lines[rdx-1]}\n")
         msg.append(f"    {self.lines[rdx]}\n")
         msg.append(f"    {' '*cdx}^\n")
         if rdx < len(self.lines) - 1:
             msg.append(f"    {self.lines[rdx+1]}\n")
+        if rdx < len(self.lines) - 2:
+            msg.append(f"    {self.lines[rdx+2]}\n")
         return "".join(msg)
 
         # log.list_fatal(title=f"line: {rdx+1}, column: {cdx+1}, file: {self.path}",
@@ -54,10 +56,15 @@ class Context:
             return None
         return self.tokens[self.token_idx+1]
 
+    def last(self) -> Token | None:
+        if self.token_idx == 0:
+            return None
+        return self.tokens[self.token_idx-1]
+
     def consume(self):
         self.token_idx += 1
 
-    def consume_until(self, token_kind: TokenKind, error_info: str, just_try: bool = False):
+    def consume_until(self, token_kind: TokenKind | list[TokenKind], error_info: str, just_try: bool = False):
         while True:
             token = self.current()
             if token is None or token.kind_ == TokenKind.EOF:
@@ -65,13 +72,14 @@ class Context:
                     return False
                 log.fatal(error_info)
                 raise ExpectedTokenNotFound
-            elif token.kind_ == token_kind:
-                end_idx = self.token_idx
+            elif isinstance(token.kind_, TokenKind) and token.kind_ == token_kind or \
+                 isinstance(token.kind_, list) and token.kind_ in token_kind:
                 return True
             else:
                 self.consume()
 
-    def consume_until_matching_pair(self, left: TokenKind, right: TokenKind, error_info: str, just_try: bool = False):
+    def consume_until_matching_pair(self, left: TokenKind | list[TokenKind], right: TokenKind | list[TokenKind],
+                                    error_info: str, just_try: bool = False):
         depth = 0
         assert self.current().kind_ == left
         while True:
@@ -81,9 +89,11 @@ class Context:
                     return False
                 log.fatal(error_info)
                 raise ExpectedTokenNotFound
-            elif token.kind_ == left:
+            elif isinstance(left, TokenKind) and token.kind_ == left or \
+                 isinstance(left, list) and token.kind_ in left:
                 depth += 1
-            elif token.kind_ == right:
+            elif isinstance(left, TokenKind) and token.kind_ == right or \
+                 isinstance(left, list) and token.kind_ in right:
                 depth -= 1
             if depth == 0:
                 return True
@@ -201,7 +211,7 @@ class Parser:
             )
             end_idx = sub_ctx.token_idx
             sub_ctx.consume()
-            para_list = self.parse_parameter_list(sub_ctx=Context(sub_ctx.tokens[start_idx:end_idx]))
+            para_list = self.parse_parameter_list(sub_ctx=Context(sub_ctx.tokens[start_idx:end_idx+1]))
 
         token = sub_ctx.current()
         if token.kind_ == TokenKind.LParen:
@@ -215,7 +225,7 @@ class Parser:
             )
             end_idx = sub_ctx.token_idx
             sub_ctx.consume()
-            port_list = self.parse_port_list(sub_ctx=Context(sub_ctx.tokens[start_idx:end_idx]))
+            port_list = self.parse_port_list(sub_ctx=Context(sub_ctx.tokens[start_idx:end_idx+1]))
 
         token = sub_ctx.current()
         if token.kind_ != TokenKind.SemiColon:
@@ -245,84 +255,54 @@ class Parser:
         param_def_s = []
         while True:
             token = sub_ctx.current()
+            if token.kind_ == TokenKind.RParen:
+                sub_ctx.consume()
+                break
             if token.kind_ != TokenKind.Parameter:
                 log.fatal(f"invalid syntax, 'parameter' is expected,\n"
                           f"{self.error_context(token.rdx, token.cdx)}\n")
                 raise ParserError
-            start_idx = sub_ctx.token_idx
-
-            sub_ctx.consume()
-            while True:
-                token = sub_ctx.current()
-                if sub_ctx.token_idx == len(sub_ctx.tokens) - 1 or token.kind_ == TokenKind.Parameter:
-                    break
-                sub_ctx.consume()
-            end_idx = sub_ctx.token_idx - 1
-
-            param_def = self.parse_parameter_def(sub_ctx=Context(sub_ctx.tokens[start_idx:end_idx+1]))
+            param_def = self.parse_parameter_def_locally(ctx=sub_ctx)
             param_def_s.append(param_def)
 
-            if sub_ctx.token_idx == len(sub_ctx.tokens) - 1:
+            token = sub_ctx.current()
+            if token.kind_ == TokenKind.RParen:
+                sub_ctx.consume()
                 break
+            if token.kind_ != TokenKind.Comma:
+                log.fatal(f"invalid syntax, ',' or ')' is expected after parameter definition,\n"
+                          f"{self.error_context(token.rdx, token.cdx)}\n")
+                raise ParserError
+            sub_ctx.consume()
 
         return param_def_s
 
-    def parse_parameter_def(self, sub_ctx: Context) -> ParamDefNode:
+    def parse_parameter_def_locally(self, ctx: Context) -> ParamDefNode:
         """
         start with "parameter", end with expression / '\0' / ',' / ';':
             parameter x = 3;
             parameter int y = 4,
             parameter logic [2:0] z = 5
+        '\0' /',' / ';' at the end will not be consumed
         """
 
-        token = sub_ctx.current()
+        token = ctx.current()
+        start_idx = ctx.token_idx
         assert token.kind_ == TokenKind.Parameter
         rdx = token.rdx
         cdx = token.cdx
 
-        data_typ = None
-        identifier = None
-        default = None
+        ctx.consume()
+        typ, data_typ, identifier_array_val_pairs = self.parse_typ_data_tpy_identifier_array_val_pairs_locally(ctx=ctx)
 
-        sub_ctx.consume()
-
-        # data type - (bit/logic) (signed/unsigned) (range) / int / string, others are not implemented
-        token = sub_ctx.current()
-        if token.kind_ != TokenKind.Identifier:
-            data_typ = self.parse_data_type_or_implicit_locally(ctx=sub_ctx)
-
-        token = sub_ctx.current()
-        if token.kind_ != TokenKind.Identifier:
-            log.fatal(f"invalid syntax, parameter name is not specified,\n"
-                      f"{self.error_context(token.rdx, token.cdx)}\n")
-            raise ParserError
-        identifier = token
-        sub_ctx.consume()
-
-        token = sub_ctx.current()
-        if token.kind_ != TokenKind.Assignment:
-            log.fatal(f"invalid syntax, '=' is expected to set default value for parameter,\n"
-                      f"{self.error_context(token.rdx, token.cdx)}\n")
-            raise ParserError
-        sub_ctx.consume()
-
-        default_start_idx = sub_ctx.token_idx
-        if sub_ctx.tokens[-1].kind_ in [TokenKind.EOF, TokenKind.Comma, TokenKind.SemiColon]:
-            default_end_idx = len(sub_ctx.tokens) - 2
+        token = ctx.current()
+        if token == TokenKind.EOF:
+            end_idx = ctx.token_idx - 1
         else:
-            default_end_idx = len(sub_ctx.tokens) - 1
+            end_idx = ctx.token_idx
 
-        if sub_ctx.tokens[-1].kind == TokenKind.EOF:
-            end_idx = len(sub_ctx.tokens) - 2
-        else:
-            end_idx = len(sub_ctx.tokens) - 1
-
-        default = sub_ctx.tokens[default_start_idx:default_end_idx+1]
-
-        return ParamDefNode(ldx=rdx, cdx=cdx, tokens=sub_ctx.tokens[:end_idx+1],
-                            identifier=identifier,
-                            data_type=data_typ,
-                            default=default)
+        return ParamDefNode(ldx=rdx, cdx=cdx, tokens=ctx.tokens[start_idx:end_idx+1],
+                            data_type=data_typ, identifier_array_val_pairs=identifier_array_val_pairs)
 
     def parse_port_list(self, sub_ctx: Context) -> list[AnsiPortDefNode] | list[NonAnsiPortDefNode]:
         token = sub_ctx.current()
@@ -346,7 +326,7 @@ class Parser:
 
         array_identifiers = self.parse_array_identifiers_locally(Context(sub_ctx.tokens[1:-1]))
         non_ansi_port_s = []
-        for identifier, _ in array_identifiers.identifier_size_s:
+        for identifier, _ in array_identifiers:
             non_ansi_port = NonAnsiPortDefNode(ldx=token.rdx, cdx=token.cdx, tokens=[identifier],
                                                identifier=identifier)
             non_ansi_port_s.append(non_ansi_port)
@@ -362,7 +342,6 @@ class Parser:
         sub_ctx.consume()
 
         ansi_port_def_s = []
-        start_idx = -1
         while True:
             token = sub_ctx.current()
             if sub_ctx.token_idx == len(sub_ctx.tokens) - 1:
@@ -374,29 +353,34 @@ class Parser:
                 log.fatal(f"invalid syntax, 'input'/'output'/'inout' is expected,\n"
                           f"{self.error_context(token.rdx, token.cdx)}\n")
                 raise ParserError
-            start_idx = sub_ctx.token_idx
 
-            sub_ctx.consume()
-            while True:
-                token = sub_ctx.current()
-                if sub_ctx.token_idx == len(sub_ctx.tokens) - 1:
-                    end_idx = sub_ctx.token_idx
-                elif token is None or token.kind_ in [TokenKind.Input, TokenKind.Output, TokenKind.Inout]:
-                    end_idx = sub_ctx.token_idx - 1
-                    break
-                sub_ctx.consume()
-
-            ansi_port_def = self.parse_ansi_port_def(sub_ctx=Context(sub_ctx.tokens[start_idx:end_idx+1]))
+            ansi_port_def = self.parse_ansi_port_def_locally(ctx=sub_ctx)
             ansi_port_def_s.append(ansi_port_def)
+
+            # check the end
+            token = sub_ctx.current()
+            if token is None:
+                assert 0, f"un-reachable branch"
+            elif token.kind_ == TokenKind.RParen:
+                break
+            elif token.kind_ == TokenKind.Comma:
+                sub_ctx.consume()
+                continue
+            else:
+                log.fatal(f"invalid token in ANSI port definition list, ',' or ')' is expected, rather than '{token}'\n"
+                          f"{self.error_context(token.rdx, token.cdx)}\n")
+                raise ParserError
 
         return ansi_port_def_s
 
-    def parse_ansi_port_def(self, sub_ctx: Context) -> AnsiPortDefNode:
+    def parse_ansi_port_def_locally(self, ctx: Context) -> AnsiPortDefNode:
         """
-        start with "input" / "output" / "inout", end with <array_identifiers> / ',' / ';' / '\0'
+        start with "input" / "output" / "inout", end with <array_identifiers> / ',' / ';' / '\0',
+        will not consume ';' / ',' / '\0' at the end
         """
 
-        token = sub_ctx.current()
+        token = ctx.current()
+        start_idx = ctx.token_idx
         assert token.kind_ == TokenKind.Input or token.kind_ == TokenKind.Output or token.kind_ == TokenKind.Inout
         rdx = token.rdx
         cdx = token.cdx
@@ -408,28 +392,34 @@ class Parser:
 
         # direction - input/output/inout
         direction = token
-        sub_ctx.consume()
+        ctx.consume()
 
         # type - wire/reg/var, others are not implemented
-        token = sub_ctx.current()
+        token = ctx.current()
         if token.kind_ == TokenKind.Wire or token.kind_ == TokenKind.Reg or token.kind_ == TokenKind.Var:
             typ = token
-            sub_ctx.consume()
+            ctx.consume()
 
         # data type - (bit/logic) (signed/unsigned) (range) / int / string, others are not implemented
-        token = sub_ctx.current()
+        token = ctx.current()
         if token.kind_ != TokenKind.Identifier:
-            data_typ = self.parse_data_type_or_implicit_locally(ctx=sub_ctx)
+            data_typ = self.parse_data_type_or_implicit_locally(ctx=ctx)
 
         # array identifiers
-        token = sub_ctx.current()
+        token = ctx.current()
         if token is not None and token.kind_ != TokenKind.Identifier:
-            log.fatal(f"invalid syntax, identifier is expected, rather than '{token}'\n"
+            log.fatal(f"invalid syntax for ANSI port definition, identifier is expected, rather than '{token}'\n"
                       f"{self.error_context(token.rdx, token.cdx)}\n")
             raise ParserError
-        array_identifiers = self.parse_array_identifiers_locally(sub_ctx)
+        array_identifiers = self.parse_array_identifiers_locally(ctx)
 
-        return AnsiPortDefNode(ldx=rdx, cdx=cdx, tokens=sub_ctx.tokens,
+        token = ctx.current()
+        if token is None:
+            end_idx = ctx.token_idx - 1
+        else:
+            end_idx = ctx.token_idx
+
+        return AnsiPortDefNode(ldx=rdx, cdx=cdx, tokens=ctx.tokens[start_idx:end_idx+1],
                                direction=direction,
                                typ=typ,
                                data_type=data_typ,
@@ -535,7 +525,31 @@ class Parser:
         assert token.kind_ == TokenKind.LBracket
         return IndexNode(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens, index=sub_ctx.tokens[1:-1])
 
-    def parse_array_identifiers_locally(self, ctx: Context):
+    def parse_array_identifier_locally(self, ctx: Context):
+        token = ctx.current()
+        start_idx = ctx.token_idx
+        rdx = token.rdx
+        cdx = token.cdx
+        assert token.kind_ == TokenKind.Identifier
+        start_idx = ctx.token_idx
+
+        identifier = token
+        ctx.consume()
+
+        size = []
+        while True:
+            token = ctx.current()
+            if token is not None and token.kind_ == TokenKind.LBracket:
+                range_or_index = self.parse_range_or_index_locally(ctx)
+                size.append(range_or_index)
+            else:
+                break
+        end_idx = ctx.token_idx - 1
+
+        return ArrayIdentifier(ldx=rdx, cdx=cdx, tokens=ctx.tokens[start_idx:end_idx+1],
+                               identifier=identifier, size=size)
+
+    def parse_array_identifiers_locally(self, ctx: Context) -> list[ArrayIdentifier]:
         """
         end with: <array_identifier> / ',' / '\0'
             a
@@ -551,51 +565,27 @@ class Parser:
         assert token.kind_ == TokenKind.Identifier
         start_idx = ctx.token_idx
 
-        identifier_size_s = []
+        array_identifier_s = []
         while True:
             token = ctx.current()
             if token.kind_ != TokenKind.Identifier:
-                log.fatal(f"invalid syntax, identifier is expected, rather than '{token}',\n"
-                          f"{self.error_context(rdx, cdx)}\n")
-            identifier = token
-            ctx.consume()
+                break
 
-            size = []
-            while True:
-                token = ctx.current()
-                if token is not None and token.kind_ == TokenKind.LBracket:
-                    range_or_index = self.parse_range_or_index_locally(ctx)
-                    size.append(range_or_index)
-                else:
-                    break
-
-            if len(size) == 0:
-                size = None
-            identifier_size = (identifier, size)
-            identifier_size_s.append(identifier_size)
+            array_identifier = self.parse_array_identifier_locally(ctx)
+            array_identifier_s.append(array_identifier)
 
             token = ctx.current()
             if token is not None and token.kind_ == TokenKind.Comma:
-                end_idx = ctx.token_idx
-                nxt_token = ctx.peek()
-                if nxt_token is None:
-                    break
-                elif nxt_token.kind_ == TokenKind.Identifier:
+                nxt = ctx.peek()
+                if nxt is not None and nxt.kind_ == TokenKind.Identifier:
                     ctx.consume()
                     continue
                 else:
-                    ctx.consume()
                     break
-            elif token is not None and token.kind_ == TokenKind.SemiColon:
-                end_idx = ctx.token_idx
-                ctx.consume()
-                break
             else:
-                end_idx = ctx.token_idx - 1
                 break
 
-        return ArrayIdentifiersNode(ldx=rdx, cdx=cdx, tokens=ctx.tokens[start_idx:end_idx+1],
-                                    identifier_size_s=identifier_size_s)
+        return array_identifier_s
 
     def parse_module_body(self, sub_ctx: Context) -> list[ModuleBodyItemNode]:
         items = []
@@ -603,39 +593,147 @@ class Parser:
             token = sub_ctx.current()
             if token is None or token.kind_ == TokenKind.EOF:
                 break
-            elif token.kind_ == TokenKind.Parameter:
-                items.append(self.parse_parameter_def_in_body_locally(sub_ctx))
-            elif token.kind_ in [TokenKind.Input, TokenKind.Output, TokenKind.Inout]:
-                items.append(self.parse_port_def_in_body_locally(sub_ctx))
-            elif token.kind_ == TokenKind.Localparam:
-                items.append(self.parse_localparam_def_locally(sub_ctx))
-            elif token.kind_ in [TokenKind.Reg, TokenKind.Var, TokenKind.Wire]:
-                items.append(self.parse_rvw_def_locally(sub_ctx))
-            elif token.kind_ in [TokenKind.Int, TokenKind.ShortInt, TokenKind.LongInt,
-                                 TokenKind.Real, TokenKind.ShortReal, TokenKind.Byte,
-                                 TokenKind.Byte, TokenKind.String, TokenKind.Integer]:
-                items.append(self.parse_inherent_type_var_locally(sub_ctx))
-            elif token.kind_ in [TokenKind.Bit, TokenKind.Logic]:
-                items.append(self.parse_bl_def_locally(sub_ctx))
-            elif token.kind_ == TokenKind.Assign:
-                items.append(self.parse_assign_locally(sub_ctx))
-            elif token.kind_ in [TokenKind.Always, TokenKind.AlwaysComb, TokenKind.AlwaysFF, TokenKind.AlwaysLatch]:
-                items.append(self.parse_always_block_locally(sub_ctx))
             elif token.kind_ == TokenKind.SemiColon:
-                # empty statement
                 sub_ctx.consume()
                 continue
-            elif token.kind_ == TokenKind.Identifier and sub_ctx.peek() is not None and sub_ctx.peek().kind_ in [
-                TokenKind.Identifier, TokenKind.SharpPat
-            ]:
-                items.append(self.parse_instantiation_locally(sub_ctx))
             elif token.kind_ == TokenKind.EndModule:
                 sub_ctx.consume()
                 break
             else:
-                assert 0, f"got token: {token}, not implemented yet\n"\
-                          f"{self.error_context(token.rdx, token.cdx)}\n"
+                item = self.parse_module_body_item_locally(sub_ctx)
+                if item is not None:
+                    items.append(item)
         return items
+
+    def parse_module_body_item_locally(self, ctx: Context) -> ModuleBodyItemNode | None:
+        token = ctx.current()
+        if token is None or token.kind_ == TokenKind.EOF:
+            return None
+        elif token.kind_ == TokenKind.Parameter:
+            return self.parse_parameter_def_in_body_locally(ctx)
+        elif token.kind_ in [TokenKind.Input, TokenKind.Output, TokenKind.Inout]:
+            return self.parse_port_def_in_body_locally(ctx)
+        elif token.kind_ == TokenKind.Localparam:
+            return self.parse_localparam_def_locally(ctx)
+        elif token.kind_ in [TokenKind.Reg, TokenKind.Var, TokenKind.Wire]:
+            return self.parse_rvw_def_locally(ctx)
+        elif token.kind_ in [TokenKind.Int, TokenKind.ShortInt, TokenKind.LongInt,
+                             TokenKind.Real, TokenKind.ShortReal, TokenKind.Byte,
+                             TokenKind.Byte, TokenKind.String, TokenKind.Integer]:
+            return self.parse_inherent_type_var_locally(ctx)
+        elif token.kind_ == TokenKind.Genvar:
+            return self.parse_genvar_def_locally(ctx)
+        elif token.kind_ in [TokenKind.Bit, TokenKind.Logic]:
+            return self.parse_bl_def_locally(ctx)
+        elif token.kind_ == TokenKind.Assign:
+            return self.parse_assign_locally(ctx)
+        elif token.kind_ in [TokenKind.Always, TokenKind.AlwaysComb, TokenKind.AlwaysFF, TokenKind.AlwaysLatch]:
+            return self.parse_always_block_locally(ctx)
+        elif token.kind_ == TokenKind.SemiColon:
+            ctx.consume()
+            return None
+        elif token.kind_ == TokenKind.Identifier and ctx.peek() is not None and ctx.peek().kind_ in [
+            TokenKind.Identifier, TokenKind.SharpPat
+        ]:
+            return self.parse_instantiation_locally(ctx)
+        elif token.kind_ == TokenKind.Begin:
+            return self.parse_begin_end_locally(ctx)
+        elif token.kind_ == TokenKind.EndModule:
+            return None
+        else:
+            assert 0, f"got token: {token}, it's invalid inside module definition, or it is not implemented yet\n" \
+                      f"{self.error_context(token.rdx, token.cdx)}\n"
+
+    def parse_begin_end_locally(self, ctx: Context) -> BeginEndBlock:
+        token = ctx.current()
+        rdx = token.rdx
+        cdx = token.cdx
+        start_idx = ctx.token_idx
+        assert token.kind_ == TokenKind.Begin
+        ctx.consume()
+
+        name = None
+        token = ctx.current()
+        if token is not None and token.kind_ == TokenKind.Colon:
+            ctx.consume()
+            token = ctx.current()
+            if token is None or token.kind_ != TokenKind.Identifier:
+                log.fatal(f"invalid syntax in begin-end block, an identifier is expected after ';',\n"
+                          f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+                raise Exception
+            name = token
+            ctx.consume()
+
+        items = []
+        while True:
+            token = ctx.current()
+            if token is None or token.kind_ == TokenKind.End:
+                break
+            item = self.parse_module_body_item_locally(ctx)
+            if item is not None:
+                items.append(item)
+        end_idx = ctx.token_idx
+        ctx.consume()
+
+        return BeginEndBlock(ldx=rdx, cdx=cdx, tokens=ctx.tokens[start_idx:end_idx+1],
+                             name=name, body=items)
+
+    def parse_typ_data_tpy_identifier_array_val_pairs_locally(self, ctx: Context) -> \
+            (Token, DatatypeNode, list[(ArrayIdentifier, Expression)]):
+        """
+        '\0' /',' / ';' at the end will not be consumed
+        """
+
+        typ = None
+        data_typ = None
+        identifier = None
+        val = None
+
+        token = ctx.current()
+        if token is not None and token.kind_ in [TokenKind.Reg, TokenKind.Var, TokenKind.Wire]:
+            typ = token
+            ctx.consume()
+
+        data_typ = self.parse_data_type_or_implicit_locally(ctx=ctx)
+
+        identifier_array_val_pairs = []
+        while True:
+            token = ctx.current()
+            if token is None or token.kind_ != TokenKind.Identifier:
+                if typ is not None:
+                    typ_src =  typ.src
+                elif data_typ is not None:
+                    typ_src = data_typ.tokens_str
+                else:
+                    typ_src ="variable"
+                log.fatal(f"invalid syntax, identifier is expected to define {typ_src},\n"
+                          f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+                raise ParserError
+            identifier_array = self.parse_array_identifier_locally(ctx=ctx)
+
+            token = ctx.current()
+            val = None
+            if token is not None and token.kind_ == TokenKind.Assignment:
+                ctx.consume()
+                val = self.parse_expression_locally(ctx=ctx)
+
+            identifier_array_val_pairs.append((identifier_array, val))
+
+            token = ctx.current()
+            if token is not None and token.kind_ == TokenKind.Comma:
+                nxt = ctx.peek()
+                if nxt is not None and nxt.kind_ == TokenKind.Identifier:
+                    ctx.consume()
+                    continue
+                else:
+                    break
+            elif token is not None and token.kind_ == TokenKind.SemiColon:
+                break
+            else:
+                break
+
+        return typ, data_typ, identifier_array_val_pairs
+
 
     def parse_parameter_def_in_body_locally(self, ctx: Context) -> ParamDefInBodyNode:
         """
@@ -644,383 +742,478 @@ class Parser:
         token = ctx.current()
         assert token.kind_ == TokenKind.Parameter
         start_idx = ctx.token_idx
-
-        ctx.consume_until(
-            token_kind=TokenKind.SemiColon,
-            error_info=f"invalid syntax, ';' not found at the end of definition,\n"
-                       f"{self.error_context(token.rdx, token.cdx)}\n"
-        )
-        end_idx = ctx.token_idx
         ctx.consume()
 
-        param_def_node = self.parse_parameter_def(sub_ctx=Context(ctx.tokens[start_idx:end_idx+1]))
-        return ParamDefInBodyNode(ldx=param_def_node.ldx, cdx=param_def_node.cdx, tokens=ctx.tokens[start_idx:end_idx+1],
-                                  param_def_node=param_def_node)
+        typ, data_typ, identifier_array_val_pairs = self.parse_typ_data_tpy_identifier_array_val_pairs_locally(ctx=ctx)
+        end_idx = ctx.token_idx
 
-    def parse_port_def_in_body_locally(self, ctx: Context) -> PortDefInBodyNode:
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            log.fatal(f"invalid syntax, ';' is expected to at the end of parameter definition,\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
+        ctx.consume()
+
+        return ParamDefInBodyNode(ldx=token.rdx, cdx=token.cdx, tokens=ctx.tokens[start_idx:end_idx+1],
+                                  data_type=data_typ, identifier_array_val_pairs=identifier_array_val_pairs)
+
+    def parse_port_def_in_body_locally(self, ctx: Context) -> PortDefAndInitInBodyNode:
         """
         start with "input" / "output" / "inout", end with ';'
         """
         token = ctx.current()
-        assert token.kind_ in [TokenKind.Input, TokenKind.Output, TokenKind.Inout]
         start_idx = ctx.token_idx
+        assert token.kind_ in [TokenKind.Input, TokenKind.Output, TokenKind.Inout]
 
-        ctx.consume_until(token_kind=TokenKind.SemiColon,
-                          error_info=f"invalid syntax, ';' not found at the end of definition,\n"
-                                     f"{self.error_context(token.rdx, token.cdx)}\n")
-        end_idx = ctx.token_idx
+        direction = token.kind
         ctx.consume()
 
-        port_def_node = self.parse_ansi_port_def(sub_ctx=Context(ctx.tokens[start_idx:end_idx+1]))
-        return PortDefInBodyNode(ldx=port_def_node.ldx, cdx=port_def_node.cdx, tokens=ctx.tokens[start_idx:end_idx+1],
-                                 port_def_node=port_def_node)
+        typ, data_typ, identifier_array_val_pairs = self.parse_typ_data_tpy_identifier_array_val_pairs_locally(ctx=ctx)
+        end_idx = ctx.token_idx
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            log.fatal(f"invalid syntax, ';' is expected to at the end of port definition,\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
+        ctx.consume()
+
+        return PortDefAndInitInBodyNode(ldx=token.rdx, cdx=token.cdx, tokens=ctx.tokens[start_idx:end_idx+1],
+                                        typ=typ, data_type=data_typ, identifier_array_val_pairs=identifier_array_val_pairs)
 
     def parse_localparam_def_locally(self, ctx: Context) -> LocalParamDefNode:
         """
-        start with "localparam", end with ';'
-        """
-        token = ctx.current()
-        assert token.kind_ == TokenKind.Localparam
-        start_idx = ctx.token_idx
-
-        ctx.consume_until(token_kind=TokenKind.SemiColon,
-                          error_info=f"invalid syntax, ';' not found at the end of definition,\n"
-                                     f"{self.error_context(token.rdx, token.cdx)}\n")
-        end_idx = ctx.token_idx
-        ctx.consume()
-
-        return self.parse_localparam_def(sub_ctx=Context(ctx.tokens[start_idx:end_idx+1]))
-
-    def parse_localparam_def(self, sub_ctx: Context) -> LocalParamDefNode:
-        """
-        start with "localparam", end with expression / '\0' / ';':
+        start with "localparam", end  ';':
             localparam x = 3;
             localparam logic [2:0] z = 5
+        '';' at the end will be consumed
         """
 
-        token = sub_ctx.current()
+        token = ctx.current()
+        start_idx = ctx.token_idx
         assert token.kind_ == TokenKind.Localparam
+        ctx.consume()
 
-        data_typ = None
-        identifier = None
-        val = None
+        typ, data_typ, identifier_array_val_pairs = self.parse_typ_data_tpy_identifier_array_val_pairs_locally(ctx=ctx)
+        end_idx = ctx.token_idx
 
-        sub_ctx.consume()
-
-        # data type - (bit/logic) (signed/unsigned) (range) / int / string, others are not implemented
-        token = sub_ctx.current()
-        if token.kind_ != TokenKind.Identifier:
-            data_typ = self.parse_data_type_or_implicit_locally(ctx=sub_ctx)
-
-        token = sub_ctx.current()
-        if token.kind_ != TokenKind.Identifier:
-            log.fatal(f"invalid syntax, localparam name is not specified,\n"
-                      f"{self.error_context(token.rdx, token.cdx)}\n")
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            log.fatal(f"invalid syntax, ';' is expected to at the end of localparam definition,\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
             raise ParserError
-        identifier = token
-        sub_ctx.consume()
+        ctx.consume()
 
-        token = sub_ctx.current()
-        if token.kind_ != TokenKind.Assignment:
-            log.fatal(f"invalid syntax, '=' is expected to set value for localparam,\n"
-                      f"{self.error_context(token.rdx, token.cdx)}\n")
-            raise ParserError
-        sub_ctx.consume()
+        return LocalParamDefNode(ldx=token.rdx, cdx=token.cdx, tokens=ctx.tokens[start_idx:end_idx+1],
+                                 data_type=data_typ, identifier_array_val_pairs=identifier_array_val_pairs)
 
-        val_start_idx = sub_ctx.token_idx
-        if sub_ctx.tokens[-1].kind_ in [TokenKind.EOF, TokenKind.SemiColon]:
-            val_end_idx = len(sub_ctx.tokens) - 2
-        else:
-            val_end_idx = len(sub_ctx.tokens) - 1
-
-        if sub_ctx.tokens[-1].kind == TokenKind.EOF:
-            end_idx = len(sub_ctx.tokens) - 2
-        else:
-            end_idx = len(sub_ctx.tokens) - 1
-
-        val = sub_ctx.tokens[val_start_idx:val_end_idx+1]
-
-        return LocalParamDefNode(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens[:end_idx+1],
-                                 identifier=identifier,
-                                 data_type=data_typ,
-                                 val=val)
-
-    def parse_rvw_def_locally(self, ctx: Context) -> VariableDefNode | VariableDefAndInitNode:
+    def parse_rvw_def_locally(self, ctx: Context)  -> VariableDefAndInitNode:
         """
         start with "reg/var/wire", end with ';'
+        ';' will be consumed
         """
         token = ctx.current()
+        start_idx = ctx.token_idx
         assert token.kind_ in [TokenKind.Reg, TokenKind.Var, TokenKind.Wire]
 
-        start_idx = ctx.token_idx
+        typ, data_typ, identifier_array_val_pairs = self.parse_typ_data_tpy_identifier_array_val_pairs_locally(ctx=ctx)
+        end_idx = ctx.token_idx - 1
 
-        ctx.consume_until(token_kind=TokenKind.SemiColon,
-                          error_info=f"invalid syntax, ';' not found at the end of definition,"
-                                     f"{self.error_context(token.rdx, token.cdx)}\n")
-        end_idx = ctx.token_idx
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            log.fatal(f"invalid syntax, ';' is expected to at the end of {typ.src} definition,\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
         ctx.consume()
 
-        return self.parse_rvw_def(sub_ctx=Context(ctx.tokens[start_idx:end_idx + 1]))
-
-    def parse_rvw_def(self, sub_ctx: Context)  -> VariableDefNode | VariableDefAndInitNode:
-        token = sub_ctx.current()
-        assert token.kind_ in [TokenKind.Reg, TokenKind.Var, TokenKind.Wire]
-
-        typ = token
-        data_typ = None
-        identifier = None
-        val = None
-
-        sub_ctx.consume()
-        data_typ = self.parse_data_type_or_implicit_locally(ctx=sub_ctx)
-
-        token = sub_ctx.current()
-        if token.kind_ != TokenKind.Identifier:
-            log.fatal(f"invalid syntax, identifier is expected to define {typ.src},\n"
-                      f"{self.error_context(token.rdx, token.cdx)}\n")
-            raise ParserError
-        identifier = token
-        sub_ctx.consume()
-
-        token = sub_ctx.current()
-        if token.kind_ == TokenKind.SemiColon:
-            sub_ctx.consume()
-            return VariableDefNode(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens,
-                                   typ=typ,
-                                   data_type=data_typ,
-                                   identifier=identifier)
-
-        if token.kind_ != TokenKind.Assignment:
-            log.fatal(f"invalid syntax, '=' is expected to set initial value\n"
-                      f"{self.error_context(token.rdx, token.cdx)}\n")
-            raise ParserError
-        sub_ctx.consume()
-
-        start_idx = sub_ctx.token_idx
-        sub_ctx.consume_until(
-            token_kind=TokenKind.SemiColon,
-            error_info=f"invalid syntax, ';' not found at the end of the statement,"
-                       f"{self.error_context(token.rdx, token.cdx)}\n")
-        end_idx = sub_ctx.token_idx
-        val = sub_ctx.tokens[start_idx:end_idx + 1]
-
-        return VariableDefAndInitNode(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens,
+        return VariableDefAndInitNode(ldx=token.rdx, cdx=token.cdx, tokens=ctx.tokens[start_idx:end_idx+1],
                                       typ=typ,
                                       data_type=data_typ,
-                                      identifier=identifier,
-                                      val=val)
+                                      identifier_array_val_pairs=identifier_array_val_pairs)
 
-    def parse_bl_def_locally(self, ctx: Context) -> VariableDefNode | VariableDefAndInitNode:
+    def parse_bl_def_locally(self, ctx: Context)  -> VariableDefAndInitNode:
         """
-        start with "bit/logic", end with ';'
+        ';' will be consumed
         """
+
         token = ctx.current()
+        start_idx = ctx.token_idx
         assert token.kind_ in [TokenKind.Bit, TokenKind.Logic]
 
-        start_idx = ctx.token_idx
 
-        ctx.consume_until(
-            token_kind=TokenKind.SemiColon,
-            error_info=f"invalid syntax, ';' not found at the end of the statement,\n"
-                       f"{self.error_context(token.rdx, token.cdx)}\n")
+        typ, data_typ, identifier_array_val_pairs = self.parse_typ_data_tpy_identifier_array_val_pairs_locally(ctx=ctx)
         end_idx = ctx.token_idx
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            log.fatal(f"invalid syntax, ';' is expected to at the end of {data_typ.tokens_str} definition,\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
         ctx.consume()
 
-        return self.parse_bl_def(sub_ctx=Context(ctx.tokens[start_idx:end_idx + 1]))
-
-    def parse_bl_def(self, sub_ctx: Context)  -> VariableDefNode | VariableDefAndInitNode:
-        token = sub_ctx.current()
-        assert token.kind_ in [TokenKind.Bit, TokenKind.Logic]
-
-        typ = None
-        data_typ = None
-        identifier = None
-        val = None
-
-        data_typ = self.parse_data_type_or_implicit_locally(ctx=sub_ctx)
-
-        token = sub_ctx.current()
-        if token.kind_ != TokenKind.Identifier:
-            log.fatal(f"invalid syntax, identifier is expected to define {token.src} variable,\n"
-                      f"{self.error_context(token.rdx, token.cdx)}\n")
-            raise ParserError
-        identifier = token
-        sub_ctx.consume()
-
-        token = sub_ctx.current()
-        if token.kind_ == TokenKind.SemiColon:
-            sub_ctx.consume()
-            return VariableDefNode(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens,
-                                   typ=typ,
-                                   data_type=data_typ,
-                                   identifier=identifier)
-
-        if token.kind_ != TokenKind.Assignment:
-            log.fatal(f"invalid syntax, '=' is expected to set initial value,\n"
-                      f"{self.error_context(token.rdx, token.cdx)}\n")
-            raise ParserError
-        sub_ctx.consume()
-
-        start_idx = sub_ctx.token_idx
-        sub_ctx.consume_until(
-            token_kind=TokenKind.SemiColon,
-            error_info=f"invalid syntax, ';' not found at the end of the statement,\n"
-                       f"{self.error_context(token.rdx, token.cdx)}\n")
-        end_idx = sub_ctx.token_idx
-        val = sub_ctx.tokens[start_idx:end_idx + 1]
-
-        return VariableDefAndInitNode(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens,
+        return VariableDefAndInitNode(ldx=token.rdx, cdx=token.cdx, tokens=ctx.tokens[start_idx:end_idx+1],
                                       typ=None,
                                       data_type=data_typ,
-                                      identifier=identifier,
-                                      val=val)
+                                      identifier_array_val_pairs=identifier_array_val_pairs)
 
-    def parse_inherent_type_var_locally(self, ctx: Context) -> VariableDefNode | VariableDefAndInitNode:
+    def parse_inherent_type_var_locally(self, ctx: Context)  -> VariableDefAndInitNode:
         """
+        ';' will be consumed
         """
         token = ctx.current()
+        start_idx = ctx.token_idx
         assert token.kind_ in [TokenKind.Int, TokenKind.ShortInt, TokenKind.LongInt,
                                TokenKind.Real, TokenKind.ShortReal, TokenKind.Byte,
                                TokenKind.Byte, TokenKind.String, TokenKind.Integer]
 
-        start_idx = ctx.token_idx
-
-        ctx.consume_until(
-            token_kind=TokenKind.SemiColon,
-            error_info=f"invalid syntax, ';' not found at the end of the statement,"
-                       f"{self.error_context(token.rdx, token.cdx)}\n"
-        )
+        typ, data_typ, identifier_array_val_pairs = self.parse_typ_data_tpy_identifier_array_val_pairs_locally(ctx=ctx)
         end_idx = ctx.token_idx
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            log.fatal(f"invalid syntax, ';' is expected to at the end of {data_typ.tokens_str} definition,\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
         ctx.consume()
 
-        return self.parse_inherent_type_var(sub_ctx=Context(ctx.tokens[start_idx:end_idx + 1]))
 
-    def parse_inherent_type_var(self, sub_ctx: Context)  -> VariableDefNode | VariableDefAndInitNode:
-        token = sub_ctx.current()
-        assert token.kind_ in [TokenKind.Int, TokenKind.ShortInt, TokenKind.LongInt,
-                               TokenKind.Real, TokenKind.ShortReal, TokenKind.Byte,
-                               TokenKind.Byte, TokenKind.String, TokenKind.Integer]
-
-        typ = None
-        data_typ = None
-        identifier = None
-        val = None
-
-        data_typ = self.parse_data_type_or_implicit_locally(ctx=sub_ctx)
-
-        token = sub_ctx.current()
-        if token.kind_ != TokenKind.Identifier:
-            log.fatal(f"invalid syntax, identifier is expected at the end of the statement,"
-                      f"{self.error_context(token.rdx, token.cdx)}\n")
-            raise ParserError
-        identifier = token
-        sub_ctx.consume()
-
-        token = sub_ctx.current()
-        if token.kind_ == TokenKind.SemiColon:
-            sub_ctx.consume()
-            return VariableDefNode(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens,
-                                   typ=None,
-                                   data_type=data_typ,
-                                   identifier=identifier)
-
-        if token.kind_ != TokenKind.Assignment:
-            log.fatal(f"invalid syntax, '=' is expected at the end of the statement,"
-                      f"{self.error_context(token.rdx, token.cdx)}\n")
-            raise ParserError
-        sub_ctx.consume()
-
-        start_idx = sub_ctx.token_idx
-        sub_ctx.consume_until(
-            token_kind=TokenKind.SemiColon,
-            error_info=f"invalid syntax, ';' not found,\n"
-                       f"{self.error_context(token.rdx, token.cdx)}\n"
-        )
-        end_idx = sub_ctx.token_idx
-        val = sub_ctx.tokens[start_idx:end_idx + 1]
-
-        return VariableDefAndInitNode(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens,
+        return VariableDefAndInitNode(ldx=token.rdx, cdx=token.cdx, tokens=ctx.tokens[start_idx:end_idx+1],
                                       typ=None,
                                       data_type=data_typ,
-                                      identifier=identifier,
-                                      val=val)
+                                      identifier_array_val_pairs=identifier_array_val_pairs)
 
     def parse_assign_locally(self, ctx: Context) -> AssignNode:
         """
-        end with ';'
+        ';' will be consumed
         """
+
+        from syntax.expression import Assignment
+
         token = ctx.current()
         start_idx = ctx.token_idx
+        assert token.kind_ == TokenKind.Assign
+        ctx.consume()
 
-        ctx.consume_until(
-            token_kind=TokenKind.SemiColon,
-            error_info=f"invalid syntax, ';' not found at the end of the statement,\n"
-                       f"{self.error_context(token.rdx, token.cdx)}\n")
+        assignment = self.parse_expression_locally(ctx=ctx)
+        if not isinstance(assignment, Assignment):
+            log.fatal(f"invalid syntax in assign statement, expect assignment expression after assign, rather than "
+                      f"{assignment}\n",
+                      f"{self.error_context(token.rdx, token.cdx)}\n")
+            raise ParserError
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            rdx = ctx.last().rdx
+            cdx = ctx.last().cdx
+            log.fatal(f"invalid syntax in assign statement, ';' is expected at the end,\n"
+                      f"{self.error_context(rdx, cdx)}\n")
         end_idx = ctx.token_idx
         ctx.consume()
 
-        return self.parse_assign(sub_ctx=Context(ctx.tokens[start_idx:end_idx + 1]))
+        return AssignNode(ldx=token.rdx, cdx=token.cdx, tokens=ctx.tokens[start_idx:end_idx+1], assignment=assignment)
 
-    def parse_assign(self, sub_ctx: Context) -> AssignNode:
+    def parse_genvar_def_locally(self, ctx: Context) -> GenvarDefNode | GenvarDefAndInitNode:
+        """
+        ';' will be consumed
+        """
+        token = ctx.current()
+        start_idx = ctx.token_idx
+        assert token.kind_ == TokenKind.Genvar
+        ctx.consume()
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.Identifier:
+            log.fatal(f"invalid syntax in genvar definition, identifier is expected, "
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
+        ctx.consume()
+
+        token = ctx.current()
+        if token is not None and token.kind_ == TokenKind.SemiColon:
+            end_idx = ctx.token_idx
+            ctx.consume()
+            return GenvarDefNode(ldx=token.rdx, cdx=token.cdx, tokens=ctx.tokens[start_idx:end_idx+1],
+                                 identifier=token)
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.Assignment:
+            log.fatal(f"invalid syntax in genvar definition, '=' is expected, "
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
+        ctx.consume()
+
+        val = self.parse_expression_locally(ctx=ctx)
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            rdx = ctx.last().rdx
+            cdx = ctx.last().cdx
+            log.fatal(f"invalid syntax in genvar definition, ';' is expected at the end,\n"
+                      f"{self.error_context(rdx, cdx)}\n")
+        end_idx = ctx.token_idx
+        ctx.consume()
+
+        return GenvarDefAndInitNode(ldx=token.rdx, cdx=token.cdx, tokens=ctx.tokens[start_idx:end_idx+1],
+                                    identifier=token,
+                                    val=val)
+
+
+
+    def parse_procedure_statement_locally(self, ctx: Context) -> ProcedureStatement:
+        token = ctx.current()
+        if token is None:
+            log.fatal(f"invalid syntax in procedure statement, '{token}'\n",
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
+        if token.kind_ == TokenKind.Begin:
+            return self.parse_procedure_begin_end_block_locally(ctx=ctx)
+        elif token.kind_ == TokenKind.If:
+            return self.parse_if_else_locally(ctx=ctx)
+        elif token.kind_ == TokenKind.Case:
+            return self.parse_case_locally(ctx=ctx)
+        elif token.kind_ == TokenKind.For:
+            return self.parse_for_statement(ctx=ctx)
+        elif token.kind_ == TokenKind.SharpPat:
+            return self.parse_delay_locally(ctx=ctx)
+        elif token.kind_ == TokenKind.Identifier or token.kind_ == TokenKind.LBrace:
+            return self.parse_procedure_assignment_locally(ctx=ctx)
+        else:
+            log.fatal(f"invalid syntax in procedure statement, '{token}'\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
+
+    def parse_assignment_statement(self, ctx: Context) -> 'Assignment | NonBlockingAssignment':
+        from syntax.expression import Assignment, NonBlockingAssignment
+        expr = self.parse_expression_locally(ctx=ctx)
+        if not isinstance(expr, (Assignment, NonBlockingAssignment, AddAssignment, SubAssignment, MulAssignment,
+                                 DivAssignment, ModAssignment, BitAndAssignment, BitOrAssignment, BitXorAssignment,
+                                 LogicLeftShiftAssignment, LogicRightShiftAssignment,
+                                 ArithmeticLeftShiftAssignment, ArithmeticRightShiftAssignment)):
+            log.fatal(f"invalid syntax in assignment statement, '{expr}'\n",
+                      f"{self.error_context(ctx.current().rdx, ctx.current().cdx)}\n")
+            raise ParserError
+        return expr
+
+    def parse_for_statement(self, ctx: Context) -> 'ForStatement':
+        token = ctx.current()
+        rdx = token.rdx
+        cdx = token.cdx
+        start_idx = ctx.token_idx
+        assert token.kind_ == TokenKind.For
+        ctx.consume()
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.LParen:
+            log.fatal(f"invalid syntax in for statement, '(' is expected,\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
+
+        data_type = None
+        init_statement = None
+        token = ctx.current()
+        if token is not None and token.kind_ != TokenKind.SemiColon:
+            data_type = self.parse_data_type_or_implicit_locally(ctx=ctx)
+            init_statement = self.parse_assignment_statement(ctx=ctx)
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            log.fatal(f"invalid syntax in for statement, ';' is expected,\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
+
+        stop = None
+        token = ctx.current()
+        if token is not None and token.kind_ != TokenKind.SemiColon:
+            stop = self.parse_expression_locally(ctx=ctx)
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            log.fatal(f"invalid syntax in for statement, ';' is expected,\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
+
+        step = None
+        token = ctx.current()
+        if token is not None and token.kind_ != TokenKind.RParen:
+            step = self.parse_expression_locally(ctx=ctx)
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.RParen:
+            log.fatal(f"invalid syntax in for statement, ')' is expected after 'for',\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+            raise ParserError
+
+        body = self.parse_procedure_statement_locally(ctx=ctx)
+        end_idx = ctx.token_idx - 1
+
+        return ForStatement(ldx=rdx, cdx=cdx, tokens=ctx.tokens[start_idx:end_idx+1],
+                            data_type=data_type, init=init_statement, stop=stop, step=step, body=body)
+
+    def parse_procedure_begin_end_block_locally(self, ctx: Context) -> 'ProcedureBeginEndBlock':
+        token = ctx.current()
+        start_idx = ctx.token_idx
+        assert token.kind_ == TokenKind.Begin
+
+        ctx.consume_until_matching_pair(
+            left=TokenKind.Begin, right=TokenKind.End,
+            error_info=f"invalid syntax, no matching 'end' found for 'begin',\n"
+                       f"{self.error_context(token.rdx, token.cdx)}\n"
+        )
+        end_idx = ctx.token_idx
+        ctx.consume()
+
+        return self.parse_begin_end_block(sub_ctx=Context(ctx.tokens[start_idx:end_idx+1]))
+
+    def parse_begin_end_block(self, sub_ctx: Context) -> ProcedureBeginEndBlock:
         token = sub_ctx.current()
-        assert token.kind_ == TokenKind.Assign
+        assert token.kind_ == TokenKind.Begin
         sub_ctx.consume()
 
-        sub_ctx.consume_until(
-            token_kind=TokenKind.Assignment,
-            error_info=f"invalid syntax, '=' not found in the assign statement,\n"
-                       f"{self.error_context(token.rdx, token.cdx)}\n")
-        lhs_end_idx = sub_ctx.token_idx - 1
+        name = None
+        token = sub_ctx.current()
+        if token.kind_ == TokenKind.Colon:
+            sub_ctx.consume()
+            token = sub_ctx.current()
+            if token is None or token.kind_ != TokenKind.Identifier:
+                log.fatal(f"invalid syntax in begin-end block, identifier is expected after ':',\n"
+                          f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+                raise ParserError
+            name = token
+            sub_ctx.consume()
+
+        body = []
+        while True:
+            if sub_ctx.token_idx == len(sub_ctx.tokens) - 1:
+                break
+            item = self.parse_procedure_statement_locally(ctx=sub_ctx)
+            body.append(item)
+
+        return ProcedureBeginEndBlock(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens, name=name, body=body)
+
+    def parse_procedure_assignment_locally(self, ctx: Context) -> ProcedureAssignment:
+        assignment = self.parse_assignment_statement(ctx=ctx)
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            rdx = ctx.last().rdx
+            cdx = ctx.last().cdx
+            log.fatal(f"invalid syntax in assignment statement, ';' is expected at the end,\n"
+                      f"{self.error_context(rdx, cdx)}\n")
+            raise ParserError
+        ctx.consume()
+        return ProcedureAssignment(ldx=assignment.ldx, cdx=assignment.cdx, tokens=assignment.tokens,
+                                   assignment=assignment)
+
+    def parse_if_else_locally(self, ctx: Context) -> IfElseBlock:
+        token = ctx.current()
+        start_idx = ctx.token_idx
+        assert token.kind_ == TokenKind.If
+        ctx.consume()
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.LParen:
+            log.fatal(f"invalid syntax, '(' is expected after 'if',\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+        ctx.consume()
+
+        condition = self.parse_expression_locally(ctx=ctx)
+
+        token = ctx.current()
+        if token is None or token.kind_ != TokenKind.RParen:
+            log.fatal(f"invalid syntax, ')' is expected after condition for 'if',\n"
+                      f"{self.error_context(ctx.last().rdx, ctx.last().cdx)}\n")
+        ctx.consume()
+
+        if_block = self.parse_procedure_statement_locally(ctx=ctx)
+
+        token = ctx.current()
+        else_block = None
+        if token is not None and token.kind_ == TokenKind.Else:
+            ctx.consume()
+            else_block = self.parse_procedure_statement_locally(ctx=ctx)
+
+        return IfElseBlock(ldx=token.rdx, cdx=token.cdx, tokens=ctx.tokens[start_idx:ctx.token_idx+1],
+                           condition=condition, if_body=if_block, else_body=else_block)
+
+    def parse_case_locally(self, ctx: Context) -> CaseStatement:
+        token = ctx.current()
+        start_idx = ctx.token_idx
+        assert token.kind_ == TokenKind.Case
+
+        ctx.consume_until_matching_pair(
+            left=TokenKind.Case, right=TokenKind.EndCase,
+            error_info=f"invalid syntax, no matching 'endcase' found for 'case',\n"
+                       f"{self.error_context(token.rdx, token.cdx)}\n"
+        )
+
+        end_idx = ctx.token_idx
+        ctx.consume()
+
+        return self.parse_case(sub_ctx=Context(ctx.tokens[start_idx:end_idx+1]))
+
+    def parse_case(self, sub_ctx: Context) -> CaseStatement:
+        token = sub_ctx.current()
+        assert token.kind_ == TokenKind.Case
         sub_ctx.consume()
 
-        return AssignNode(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens,
-                          lhs=sub_ctx.tokens[1:lhs_end_idx+1], rhs=sub_ctx.tokens[lhs_end_idx+2:-1])
-
-    def parse_always_block_locally(self, sub_ctx: Context) -> AlwaysBlockNode:
         token = sub_ctx.current()
+        if token is None or token.kind_ != TokenKind.LParen:
+            log.fatal(f"invalid syntax, '(' is expected after 'case',\n"
+                      f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+        sub_ctx.consume()
+
+        expr = self.parse_expression_locally(ctx=sub_ctx)
+
+        token = sub_ctx.current()
+        if token is None or token.kind_ != TokenKind.RParen:
+            log.fatal(f"invalid syntax, ')' is expected after expression for 'case',\n"
+                      f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+        sub_ctx.consume()
+
+        pairs = []
+        default = None
+        while True:
+            token = sub_ctx.current()
+            if token.kind_ == TokenKind.EndCase:
+                break
+            elif token.kind_ == TokenKind.Default:
+                sub_ctx.consume()
+                default = self.parse_procedure_statement_locally(ctx=sub_ctx)
+                break
+            condition = self.parse_expression_locally(ctx=sub_ctx)
+            token = sub_ctx.current()
+            if token is None or token.kind_ != TokenKind.Colon:
+                log.fatal(f"invalid syntax, ':' is expected after condition for 'case',\n"
+                          f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+            sub_ctx.consume()
+            ps = self.parse_procedure_statement_locally(ctx=sub_ctx)
+            pairs.append((condition, ps))
+
+        return CaseStatement(ldx=token.rdx, cdx=token.cdx,
+                             tokens=sub_ctx.tokens,
+                             expression=expr,
+                             case_pairs=pairs,
+                             default_statement=default)
+
+    def parse_always_block_locally(self, ctx: Context) -> AlwaysBlockNode:
+        token = ctx.current()
         rdx = token.rdx
         cdx = token.cdx
         assert token.kind_ in [TokenKind.Always, TokenKind.AlwaysComb, TokenKind.AlwaysFF, TokenKind.AlwaysLatch]
-        start_idx = sub_ctx.token_idx
+        start_idx = ctx.token_idx
 
         always_typ = token
         sensitivity_list = []
 
-        sub_ctx.consume()
-        token = sub_ctx.current()
+        ctx.consume()
+        token = ctx.current()
         if token is not None and token.kind_ == TokenKind.At:
-            sensitivity_list = self.parse_sensitivity_list_locally(ctx=sub_ctx)
+            sensitivity_list = self.parse_sensitivity_list_locally(ctx=ctx)
 
-        token = sub_ctx.current()
-        if token is None or token.kind == TokenKind.EOF:
-            log.fatal(f"invalid always block, it's in-complete,\n"
-                      f"{self.error_context(rdx, cdx)}\n")
-        elif token.kind_ == TokenKind.Begin:
-            body_begin_idx = sub_ctx.token_idx
-            sub_ctx.consume_until_matching_pair(
-                left=TokenKind.Begin, right=TokenKind.End,
-                error_info=f"invalid syntax, no matching 'end' for 'begin',\n"
-                           f"{self.error_context(rdx, cdx)}\n"
-            )
-            body_end_idx = sub_ctx.token_idx
-            sub_ctx.consume()
-            return AlwaysBlockNode(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens[start_idx:body_end_idx+1],
-                                   always_typ=always_typ,
-                                   sensitivity_list=sensitivity_list,
-                                   body=sub_ctx.tokens[body_begin_idx+1:body_end_idx+1])
-        else:
-            body_begin_idx = sub_ctx.token_idx
-            sub_ctx.consume_until(
-                token_kind=TokenKind.SemiColon,
-                error_info=f"invalid syntax, ';' not found at the end of the always block,\n"
-                           f"{self.error_context(rdx, cdx)}\n"
-            )
-            body_end_idx = sub_ctx.token_idx
-            sub_ctx.consume()
-            return AlwaysBlockNode(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens[start_idx:body_end_idx+1],
-                                   always_typ=always_typ,
-                                   sensitivity_list=sensitivity_list,
-                                   body=sub_ctx.tokens[body_begin_idx+1:body_end_idx+1])
+        token = ctx.current()
+        ps = self.parse_procedure_statement_locally(ctx=ctx)
+
+        return AlwaysBlockNode(ldx=rdx, cdx=cdx, tokens=ctx.tokens[start_idx:ctx.token_idx+1],
+                               always_typ=always_typ, sensitivity_list=sensitivity_list, body=ps)
 
     def parse_sensitivity_list_locally(self, ctx: Context) -> list[Token]:
         token = ctx.current()
@@ -1241,7 +1434,189 @@ class Parser:
 
     def parse_expression_locally(self, ctx: Context) -> 'Expression':
         from pratt import parse_expression
-        return parse_expression(depth=0, src_info=self.source_info, ctx=ctx, ctx_bp=0)
+        expr = parse_expression(depth=0, src_info=self.source_info, ctx=ctx, ctx_bp=0)
+        return expr
+
+    def parse_delay_locally(self, ctx: Context) -> DelayStatement:
+        from pratt import parse_delay
+        delay = parse_delay(ctx=ctx, src_info=self.source_info)
+        return DelayStatement(ldx=delay.ldx, cdx=delay.cdx, tokens=delay.tokens, delay=delay)
+
+    def parse_generate_locally(self, ctx: Context) -> Generate:
+        token = ctx.current()
+        start_idx = ctx.token_idx
+        assert token.kind_ == TokenKind.Generate
+
+        nxt = ctx.peek()
+        if nxt is None or nxt.kind_ not in [TokenKind.Case, TokenKind.For, TokenKind.If]:
+            log.fatal(f"invalid syntax for generate statement, 'case', 'for' or 'if' is expected,\n"
+                      f"{self.error_context(token.rdx, token.cdx)}\n")
+            raise ParserError
+
+        ctx.consume_until_matching_pair(
+            left=TokenKind.Generate, right=TokenKind.EndGenerate,
+            error_info=f"invalid synatx, no matching 'endgenerate' found for 'generate',\n"
+                       f"{self.error_context(token.rdx, token.cdx)}\n")
+        end_idx = ctx.token_idx
+        ctx.consume()
+        sub_ctx = Context(tokens=ctx.tokens[start_idx:end_idx])
+
+        if nxt.kind_ == TokenKind.Case:
+            return self.parse_generate_case(sub_ctx=sub_ctx)
+        elif nxt.kind_ == TokenKind.For:
+            return self.parse_generate_for(sub_ctx=sub_ctx)
+        else:
+            return self.parse_generate_if(sub_ctx=sub_ctx)
+
+    def parse_generate_case(self, sub_ctx: Context) -> GenerateCase:
+        token = sub_ctx.current()
+        assert token.kind_ == TokenKind.Generate
+        sub_ctx.consume()
+
+        token = sub_ctx.current()
+        assert token.kind_ == TokenKind.Case
+        sub_ctx.consume()
+
+        token = sub_ctx.current()
+        if token is None or token.kind_ != TokenKind.LParen:
+            log.fatal(f"invalid syntax in generate case statement, '(' is expected after 'case',\n",
+                      f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+            raise ParserError
+        sub_ctx. consume()
+
+        expr = self.parse_expression_locally(ctx=sub_ctx)
+
+        token = sub_ctx.current()
+        if token is None or token.kind_ != TokenKind.RParen:
+            log.fatal(f"invalid syntax in generate case statement, ')' is expected after expression,\n",
+                      f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+            raise ParserError
+
+        pairs = []
+        default = None
+        while True:
+            token = sub_ctx.current()
+            if token.kind_ == TokenKind.EndCase:
+                sub_ctx.consume()
+                break
+            elif token.kind_ == TokenKind.Default:
+                sub_ctx.consume()
+                default = self.parse_module_body_item_locally(ctx=sub_ctx)
+                break
+            condition = self.parse_expression_locally(ctx=sub_ctx)
+            token = sub_ctx.current()
+            if token is None or token.kind_ != TokenKind.Colon:
+                log.fatal(f"invalid syntax, ':' is expected after condition for 'case',\n"
+                          f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+            sub_ctx.consume()
+            i = self.parse_module_body_item_locally(ctx=sub_ctx)
+            pairs.append((condition, i))
+
+        token = sub_ctx.current()
+        if token is None or token.kind_ != TokenKind.EndGenerate:
+            log.fatal(f"invalid syntax, 'endgenerate' after 'endcase',\n"
+                      f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+            raise ParserError
+        sub_ctx.consume()
+
+        return GenerateCase(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens,
+                            expression=expr, case_pairs=pairs, default_statement=default)
+
+    def parse_generate_for(self, sub_ctx: Context) -> GenerateFor:
+        token = sub_ctx.current()
+        assert token.kind_ == TokenKind.Generate
+        sub_ctx.consume()
+
+        token = sub_ctx.current()
+        assert token.kind_ == TokenKind.For
+        sub_ctx.consume()
+
+        token = sub_ctx.current()
+        if token is None or token.kind_ != TokenKind.LParen:
+            log.fatal(f"invalid syntax in generate case statement, '(' is expected after 'for',\n",
+                      f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+            raise ParserError
+        sub_ctx.consume()
+
+        data_type = None
+        token = sub_ctx.current()
+        if token is not None and token.kind_ == TokenKind.Genvar:
+            data_type = token
+            sub_ctx.consume()
+
+        init = None
+        token = sub_ctx.current()
+        if token is not None and token.kind_ != TokenKind.SemiColon:
+            init = self.parse_expression_locally(ctx=sub_ctx)
+
+        token = sub_ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            log.fatal(f"invalid syntax in generate case statement, ';' is expected after initialization statement,\n",
+                      f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+            raise ParserError
+        sub_ctx.consume()
+
+        stop = None
+        token = sub_ctx.current()
+        if token is not None and token.kind_ != TokenKind.SemiColon:
+            stop = self.parse_expression_locally(ctx=sub_ctx)
+
+        token = sub_ctx.current()
+        if token is None or token.kind_ != TokenKind.SemiColon:
+            log.fatal(f"invalid syntax in generate case statement, ';' is expected after stop condition statement,\n",
+                      f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+            raise ParserError
+        sub_ctx.consume()
+
+        step = None
+        token = sub_ctx.current()
+        if token is not None and token.kind_ != TokenKind.SemiColon:
+            step = self.parse_expression_locally(ctx=sub_ctx)
+
+        token = sub_ctx.current()
+        if token is None or token.kind_ != TokenKind.RParen:
+            log.fatal(f"invalid syntax in generate case statement, ')' is expected after step statement,\n",
+                      f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+            raise ParserError
+        sub_ctx.consume()
+
+        body = self.parse_module_body_item_locally(ctx=sub_ctx)
+
+        return GenerateFor(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens,
+                           data_type=data_type, init=init, stop=stop, step=step, body=body)
+
+    def parse_generate_if(self, sub_ctx: Context) -> GenerateIf:
+        token = sub_ctx.current()
+        assert token.kind_ == TokenKind.Generate
+        sub_ctx.consume()
+
+        token = sub_ctx.current()
+        assert token.kind_ == TokenKind.For
+        sub_ctx.consume()
+
+        token = sub_ctx.current()
+        if token is None or token.kind_ != TokenKind.LParen:
+            log.fatal(f"invalid syntax in generate case statement, '(' is expected after 'if',\n",
+                      f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+            raise ParserError
+        sub_ctx.consume()
+
+        condition = self.parse_expression_locally(ctx=sub_ctx)
+
+        token = sub_ctx.current()
+        if token is None or token.kind_ != TokenKind.RParen:
+            log.fatal(f"invalid syntax in generate case statement, ')' is expected after condition,\n",
+                      f"{self.error_context(sub_ctx.last().rdx, sub_ctx.last().cdx)}\n")
+            raise ParserError
+        sub_ctx.consume()
+
+        body = self.parse_module_body_item_locally(ctx=sub_ctx)
+
+        return GenerateIf(ldx=token.rdx, cdx=token.cdx, tokens=sub_ctx.tokens,
+                          condition=condition, body=body)
+
+
+
 
 
 if __name__ == "__main__":
@@ -1315,7 +1690,7 @@ real         zzz;
 assign       zzz = 3.0;
 
 always@(posedge clk or negedge rstn) begin
-    if(~rstn) begin
+    if(~rstn) begin: reset
         z <= 1;
     end
     else if(en)
@@ -1346,24 +1721,38 @@ u_test
 
 endmodule
 """
+
+    with open(f"rich_grammar.sv", 'r', encoding="utf-8") as f:
+        verilog = f.read()
+
     parser = Parser(verilog, delete_eof=True)
     module = parser.parse_module_detail(sub_ctx=Context(tokens=parser.ctx.tokens))
 
     import yaml
     import dataclasses
 
-    def remove_tokens_recursive(data):
+    def re_arrange(data):
         if isinstance(data, dict):
             if 'tokens' in data:
                 del data['tokens']
+            if 'ldx' in data:
+                del data['ldx']
+            if 'rdx' in data:
+                del data['rdx']
+            if 'cdx' in data:
+                del data['cdx']
+            if 'kind' in data:
+                del data['kind']
+            if 'val' in data:
+                del data['val']
             for key, value in data.items():
-                data[key] = remove_tokens_recursive(value)
+                data[key] = re_arrange(value)
         elif isinstance(data, list):
             for i in range(len(data)):
-                data[i] = remove_tokens_recursive(data[i])
+                data[i] = re_arrange(data[i])
         return data
 
-    d = dataclasses.asdict(module)
+    d = re_arrange(node_as_dict(module))
     # d = remove_tokens_recursive(d)
 
     with open("test.yml", 'w', encoding="utf-8") as f:

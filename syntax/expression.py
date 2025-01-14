@@ -1,12 +1,7 @@
 import dataclasses
 
 from lexer_ import Token
-from syntax.node_ import SyntaxNode
-
-
-@dataclasses.dataclass
-class Expression(SyntaxNode):
-    pass
+from syntax.node_ import Expression, SyntaxNode
 
 
 @dataclasses.dataclass
@@ -358,98 +353,113 @@ class Conditional(Expression):
 
 
 @dataclasses.dataclass
-class Assignment(BinaryOperator):
+class BaseAssignment(BinaryOperator):
+    delay: 'Delay | None'
+
+    @property
+    def symbol(self) -> str:
+        return '='
+
+    @property
+    def tokens_str(self) -> str:
+        if self.delay is None:
+            return f"『{self.left.tokens_str}』{self.symbol}『{self.right.tokens_str}』"
+        else:
+            return f"『{self.left.tokens_str}』{self.symbol}『{self.delay.tokens_str}』『{self.right.tokens_str}』"
+
+@dataclasses.dataclass
+class Assignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '='
 
 
 @dataclasses.dataclass
-class AddAssignment(BinaryOperator):
+class AddAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '+='
 
 
 @dataclasses.dataclass
-class SubAssignment(BinaryOperator):
+class SubAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '-='
 
 
 @dataclasses.dataclass
-class MulAssignment(BinaryOperator):
+class MulAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '*='
 
 
 @dataclasses.dataclass
-class DivAssignment(BinaryOperator):
+class DivAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '/='
 
 
 @dataclasses.dataclass
-class ModAssignment(BinaryOperator):
+class ModAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '%='
 
 
 @dataclasses.dataclass
-class BitAndAssignment(BinaryOperator):
+class BitAndAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '&='
 
 
 @dataclasses.dataclass
-class BitOrAssignment(BinaryOperator):
+class BitOrAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '|='
 
 
 @dataclasses.dataclass
-class BitXorAssignment(BinaryOperator):
+class BitXorAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '^='
 
 
 @dataclasses.dataclass
-class LogicLeftShiftAssignment(BinaryOperator):
+class LogicLeftShiftAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '<<='
 
 
 @dataclasses.dataclass
-class LogicRightShiftAssignment(BinaryOperator):
+class LogicRightShiftAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '>>='
 
 
 @dataclasses.dataclass
-class ArithmeticLeftShiftAssignment(BinaryOperator):
+class ArithmeticLeftShiftAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '<<<='
 
 
 @dataclasses.dataclass
-class ArithmeticRightShiftAssignment(BinaryOperator):
+class ArithmeticRightShiftAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '>>>='
 
 
 @dataclasses.dataclass
-class NonBlockingAssignment(BinaryOperator):
+class NonBlockingAssignment(BaseAssignment):
     @property
     def symbol(self) -> str:
         return '<='
@@ -491,6 +501,23 @@ class FuncCall(Expression):
     @property
     def tokens_str(self) -> str:
         return f"『{self.identifier.tokens_str}』(『{self.args.tokens_str}』)"
+
+
+@dataclasses.dataclass
+class Delay(SyntaxNode):
+    duration: Expression
+    unit: Token | None
+
+
+@dataclasses.dataclass
+class UnpackedArrayCat(Expression):
+    args: Args
+
+    @property
+    def tokens_str(self) -> str:
+        return f"{{『{self.args.tokens_str}』}}"
+
+
 
 
 

@@ -1,6 +1,10 @@
 import dataclasses
+from typing import TYPE_CHECKING
 
 from lexer_ import Token
+
+if TYPE_CHECKING:
+    from syntax.expression import Assignment, Expression, Delay
 
 
 @dataclasses.dataclass
@@ -20,7 +24,7 @@ class SyntaxNode:
 
     @property
     def tokens_str(self) -> str:
-        return ''.join(map(lambda x: x.src, self.tokens))
+        return ' '.join(map(lambda x: x.src, self.tokens))
 
 
 is_first_tuple = True
@@ -68,6 +72,11 @@ def node_as_dict(obj):
 
 
 @dataclasses.dataclass
+class Expression(SyntaxNode):
+    pass
+
+
+@dataclasses.dataclass
 class ModuleNode(SyntaxNode):
     name: str
     para_list: 'list[ParamDefNode]'
@@ -98,8 +107,9 @@ SizeNode = IndexNode
 
 
 @dataclasses.dataclass
-class ArrayIdentifiersNode(SyntaxNode):
-    identifier_size_s: list[(Token, list[RangeNode | SizeNode] | None)]
+class ArrayIdentifier(SyntaxNode):
+    identifier: Token
+    size: list[RangeNode | SizeNode]
 
 
 @dataclasses.dataclass
@@ -107,7 +117,7 @@ class AnsiPortDefNode(SyntaxNode):
     direction: Token
     typ: Token
     data_type: DatatypeNode
-    array_identifiers: ArrayIdentifiersNode
+    array_identifiers: list[ArrayIdentifier]
 
 
 @dataclasses.dataclass
@@ -118,8 +128,7 @@ class NonAnsiPortDefNode(SyntaxNode):
 @dataclasses.dataclass
 class ParamDefNode(SyntaxNode):
     data_type: DatatypeNode
-    identifier: Token
-    default: list[Token]
+    identifier_array_val_pairs: list[(ArrayIdentifier, Expression)]
 
 
 @dataclasses.dataclass
@@ -129,47 +138,68 @@ class ModuleBodyItemNode(SyntaxNode):
 
 @dataclasses.dataclass
 class ParamDefInBodyNode(ModuleBodyItemNode):
-    param_def_node: ParamDefNode
+    data_type: DatatypeNode
+    identifier_array_val_pairs: list[(ArrayIdentifier, Expression)]
 
 
 @dataclasses.dataclass
-class PortDefInBodyNode(ModuleBodyItemNode):
-    port_def_node: AnsiPortDefNode
+class PortDefAndInitInBodyNode(ModuleBodyItemNode):
+    direction: Token
+    typ: Token | None
+    data_type: Token | None
+    identifier_array_val_pairs: list[(ArrayIdentifier, Expression)]
 
 
 @dataclasses.dataclass
 class LocalParamDefNode(ModuleBodyItemNode):
     data_type: DatatypeNode
-    identifier: Token
-    val: list[Token]
-
-
-@dataclasses.dataclass
-class VariableDefNode(ModuleBodyItemNode):
-    typ: Token | None
-    data_type: Token | None
-    identifier: Token
+    identifier_array_val_pairs: list[(ArrayIdentifier, Expression)]
 
 
 @dataclasses.dataclass
 class VariableDefAndInitNode(ModuleBodyItemNode):
     typ: Token | None
     data_type: Token | None
+    identifier_array_val_pairs: list[(ArrayIdentifier, Expression)]
+
+
+# @dataclasses.dataclass
+# class VariableDefNode(ModuleBodyItemNode):
+#     typ: Token | None
+#     data_type: Token | None
+#     identifier: Token
+#
+#
+# @dataclasses.dataclass
+# class VariableDefAndInitNode(ModuleBodyItemNode):
+#     typ: Token | None
+#     data_type: Token | None
+#     identifier: Token
+#     val: Expression
+
+
+
+@dataclasses.dataclass
+class GenvarDefNode(ModuleBodyItemNode):
     identifier: Token
-    val: list[Token]
+
+
+@dataclasses.dataclass
+class GenvarDefAndInitNode(ModuleBodyItemNode):
+    identifier: Token
+    val: Expression
 
 
 @dataclasses.dataclass
 class AssignNode(ModuleBodyItemNode):
-    lhs: list[Token]
-    rhs: list[Token]
+    assignment: 'Expression'
 
 
 @dataclasses.dataclass
 class AlwaysBlockNode(ModuleBodyItemNode):
     always_typ: Token
     sensitivity_list: list[Token]
-    body: list[Token]
+    body: 'ProcedureStatement'
 
 
 @dataclasses.dataclass
@@ -190,3 +220,83 @@ class InstantiationNode(ModuleBodyItemNode):
     para_set_list: list[ParaSetNode]
     instance_identifier: Token
     port_connect_list: list[PortConnectNode]
+
+
+@dataclasses.dataclass
+class BeginEndBlock(ModuleBodyItemNode):
+    name: Token | None
+    body: list[ModuleBodyItemNode]
+
+
+@dataclasses.dataclass
+class ProcedureStatement(SyntaxNode):
+    pass
+
+
+@dataclasses.dataclass
+class ProcedureBeginEndBlock(ProcedureStatement):
+    name: Token | None
+    body: list[ProcedureStatement]
+
+
+@dataclasses.dataclass
+class ForStatement(ProcedureStatement):
+    data_type: DatatypeNode | None
+    init: 'Expression | None'
+    stop: 'Expression | None'
+    step: 'Expression | None'
+    body: ProcedureStatement
+
+
+@dataclasses.dataclass
+class IfElseBlock(ProcedureStatement):
+    condition: 'Expression'
+    if_body: ProcedureStatement
+    else_body: ProcedureStatement | None
+
+
+@dataclasses.dataclass
+class CaseStatement(ProcedureStatement):
+    expression: 'Expression'
+    case_pairs: 'list[(Expression, ProcedureStatement)]'
+    default_statement: ProcedureStatement | None
+
+
+@dataclasses.dataclass
+class DelayStatement(ProcedureStatement):
+    delay: 'Delay'
+
+
+@dataclasses.dataclass
+class ProcedureAssignment(ProcedureStatement):
+    assignment: 'Assignment'
+
+
+
+@dataclasses.dataclass
+class Generate(ModuleBodyItemNode):
+    pass
+
+
+@dataclasses.dataclass
+class GenerateIf(Generate):
+    condition: 'Expression'
+    body: ModuleBodyItemNode
+
+
+@dataclasses.dataclass
+class GenerateFor(Generate):
+    data_type: Token | None
+    init: 'Expression | None'
+    stop: 'Expression | None'
+    step: 'Expression | None'
+    body: ModuleBodyItemNode
+
+
+@dataclasses.dataclass
+class GenerateCase(Generate):
+    expression: 'Expression'
+    case_pairs: 'list[(Expression, ModuleBodyItemNode)]'
+    default_statement: ModuleBodyItemNode
+
+
