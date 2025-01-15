@@ -1,835 +1,708 @@
-from enum import Enum, auto
-from typing import Dict, List, Sequence, Set, Tuple, Union
-
+import bisect
+import enum
+import dataclasses
 import re
 
-
-class UnterminatedStringLiteral(Exception):
-    def __init__(self, ldx: int, cdx: int, string_literal: str):
-        self.ldx = ldx
-        self.cdx = cdx
-        self.stringLiteral = string_literal
+from reserved_word import reserved_words
 
 
-class UnterminatedBlockComment(Exception):
-    def __init__(self, ldx: int, cdx: int, block_comment: List[str]):
-        self.ldx = ldx
-        self.cdx = cdx
-        self.blockComment = block_comment
+class TokenKind(enum.Enum):
+    LineComment = enum.auto()
+    BlockComment = enum.auto()
+    StringLiteral = enum.auto()
+    Literal = enum.auto()
+    Directive = enum.auto()
+    Inside = enum.auto()
+    dist = enum.auto()
+    ArithLeftShiftAssignment = enum.auto()
+    ArithRightShiftAssignment = enum.auto()
+    ArithLeftShift = enum.auto()
+    ArithRightShift = enum.auto()
+    CaseEqual = enum.auto()
+    CaseInEqual = enum.auto()
+    WildcardEqual = enum.auto()
+    WildcardInEqual = enum.auto()
+    LogicLeftShiftAssignment = enum.auto()
+    LogicRightShiftAssignment = enum.auto()
+    Equivalence = enum.auto()
+    DoubleBackQuote = enum.auto()
+    Pow = enum.auto()
+    Equal = enum.auto()
+    InEqual = enum.auto()
+    LessThan = enum.auto()
+    GreaterThan = enum.auto()
+    LessEqual = enum.auto()
+    GreaterEqual = enum.auto()
+    LogicAnd = enum.auto()
+    LogicOr = enum.auto()
+    LogicLeftShift = enum.auto()
+    LogicRightShift = enum.auto()
+    AddAssignment = enum.auto()
+    SubAssignment = enum.auto()
+    MulAssignment = enum.auto()
+    DivAssignment = enum.auto()
+    ModAssignment = enum.auto()
+    BitAndAssignment = enum.auto()
+    BitOrAssignment = enum.auto()
+    BitXorAssignment = enum.auto()
+    Implication = enum.auto()
+    BackQuote = enum.auto()
+    SharpPat = enum.auto()
+    LParen = enum.auto()
+    RParen = enum.auto()
+    SingleQuoteLBrace = enum.auto()
+    LBrace = enum.auto()
+    RBrace = enum.auto()
+    LBracket = enum.auto()
+    RBracket = enum.auto()
+    Comma = enum.auto()
+    Colon = enum.auto()
+    SemiColon = enum.auto()
+    At = enum.auto()
+    Dot = enum.auto()
+    ScopeResolution = enum.auto()
+    SelfIncrement = enum.auto()
+    SelfDecrement = enum.auto()
+    SingleQuote = enum.auto()
+    DoubleQuote = enum.auto()
+    BackSlash = enum.auto()
+    Dollar = enum.auto()
+    QuestionMark = enum.auto()
+    Assignment = enum.auto()
+    Add = enum.auto()
+    Sub = enum.auto()
+    Mul = enum.auto()
+    Div = enum.auto()
+    Mod = enum.auto()
+    BitAnd = enum.auto()
+    BitOr = enum.auto()
+    BitXor = enum.auto()
+    BitNot = enum.auto()
+    LogicNot = enum.auto()
+    Begin = enum.auto()
+    End = enum.auto()
+    Class = enum.auto()
+    EndClass = enum.auto()
+    Case = enum.auto()
+    EndCase = enum.auto()
+    Config = enum.auto()
+    EndConfig = enum.auto()
+    Function = enum.auto()
+    EndFunction = enum.auto()
+    Generate = enum.auto()
+    EndGenerate = enum.auto()
+    Group = enum.auto()
+    EndGroup = enum.auto()
+    Interface = enum.auto()
+    EndInterface = enum.auto()
+    Module = enum.auto()
+    EndModule = enum.auto()
+    Package = enum.auto()
+    EndPackage = enum.auto()
+    Program = enum.auto()
+    EndProgram = enum.auto()
+    Property = enum.auto()
+    EndProperty = enum.auto()
+    Task = enum.auto()
+    EndTask = enum.auto()
+    If = enum.auto()
+    Else = enum.auto()
+    For = enum.auto()
+    ForEach = enum.auto()
+    Do = enum.auto()
+    While = enum.auto()
+    Break = enum.auto()
+    Continue = enum.auto()
+    Return = enum.auto()
+    Always = enum.auto()
+    AlwaysComb = enum.auto()
+    AlwaysFF = enum.auto()
+    AlwaysLatch = enum.auto()
+    Initial = enum.auto()
+    Final = enum.auto()
+    Repeat = enum.auto()
+    Forever = enum.auto()
+    Fork = enum.auto()
+    Join = enum.auto()
+    JoinAny = enum.auto()
+    JoinNone = enum.auto()
+    Posedge = enum.auto()
+    Negedge = enum.auto()
+    Int = enum.auto()
+    Integer = enum.auto()
+    Real = enum.auto()
+    ShortInt = enum.auto()
+    ShortReal = enum.auto()
+    LongInt = enum.auto()
+    Byte = enum.auto()
+    String = enum.auto()
+    Enum = enum.auto()
+    Struct = enum.auto()
+    Union = enum.auto()
+    Const = enum.auto()
+    Signed = enum.auto()
+    Unsigned = enum.auto()
+    Static = enum.auto()
+    Auto = enum.auto()
+    Virtual = enum.auto()
+    Ref = enum.auto()
+    Parameter = enum.auto()
+    Localparam = enum.auto()
+    Input = enum.auto()
+    Output = enum.auto()
+    Inout = enum.auto()
+    Wire = enum.auto()
+    Reg = enum.auto()
+    Var = enum.auto()
+    Logic = enum.auto()
+    Bit = enum.auto()
+    Alias = enum.auto()
+    Assign = enum.auto()
+    Second = enum.auto()
+    MiniSecond = enum.auto()
+    MicroSecond = enum.auto()
+    NanoSecond = enum.auto()
+    PicoSecond = enum.auto()
+    FemtoSecond = enum.auto()
+    Accept_on = enum.auto()
+    And = enum.auto()
+    Assert = enum.auto()
+    Assume = enum.auto()
+    Automatic = enum.auto()
+    Before = enum.auto()
+    Bind = enum.auto()
+    Bins = enum.auto()
+    Binsof = enum.auto()
+    Buf = enum.auto()
+    Bufif0 = enum.auto()
+    Bufif1 = enum.auto()
+    Casex = enum.auto()
+    Casez = enum.auto()
+    Cell = enum.auto()
+    Chandle = enum.auto()
+    Checker = enum.auto()
+    Clocking = enum.auto()
+    Cmos = enum.auto()
+    Constraint = enum.auto()
+    Context = enum.auto()
+    Cover = enum.auto()
+    Covergroup = enum.auto()
+    Coverpoint = enum.auto()
+    Cross = enum.auto()
+    Deassign = enum.auto()
+    Default = enum.auto()
+    Defparam = enum.auto()
+    Design = enum.auto()
+    Disable = enum.auto()
+    Edge = enum.auto()
+    Endchecker = enum.auto()
+    Endclocking = enum.auto()
+    Endprimitive = enum.auto()
+    Endspecify = enum.auto()
+    Endsequence = enum.auto()
+    Endtable = enum.auto()
+    Event = enum.auto()
+    Eventually = enum.auto()
+    Expect = enum.auto()
+    Export = enum.auto()
+    Extends = enum.auto()
+    Extern = enum.auto()
+    First_match = enum.auto()
+    Force = enum.auto()
+    Forkjoin = enum.auto()
+    Genvar = enum.auto()
+    Global = enum.auto()
+    Highz0 = enum.auto()
+    Highz1 = enum.auto()
+    Iff = enum.auto()
+    Ifnone = enum.auto()
+    Ignore_bins = enum.auto()
+    Illegal_bins = enum.auto()
+    Implements = enum.auto()
+    Implies = enum.auto()
+    Import = enum.auto()
+    Incdir = enum.auto()
+    Include = enum.auto()
+    Instance = enum.auto()
+    Interconnect = enum.auto()
+    Intersect = enum.auto()
+    Large = enum.auto()
+    Let = enum.auto()
+    Liblist = enum.auto()
+    Library = enum.auto()
+    Local = enum.auto()
+    Macromodule = enum.auto()
+    Matches = enum.auto()
+    Medium = enum.auto()
+    Modport = enum.auto()
+    Nand = enum.auto()
+    Nettype = enum.auto()
+    New = enum.auto()
+    Nexttime = enum.auto()
+    Nmos = enum.auto()
+    Nor = enum.auto()
+    Noshowcancelled = enum.auto()
+    Not = enum.auto()
+    Notif0 = enum.auto()
+    Notif1 = enum.auto()
+    Null = enum.auto()
+    Or = enum.auto()
+    Packed = enum.auto()
+    Pmos = enum.auto()
+    Primitive = enum.auto()
+    Priority = enum.auto()
+    Protected = enum.auto()
+    Pull0 = enum.auto()
+    Pull1 = enum.auto()
+    Pulldown = enum.auto()
+    Pullup = enum.auto()
+    Pulsestyle_ondetect = enum.auto()
+    Pulsestyle_onevent = enum.auto()
+    Pure = enum.auto()
+    Rand = enum.auto()
+    Randc = enum.auto()
+    Randcase = enum.auto()
+    Randsequence = enum.auto()
+    Rcmos = enum.auto()
+    Realtime = enum.auto()
+    Reject_on = enum.auto()
+    Release = enum.auto()
+    Restrict = enum.auto()
+    Rnmos = enum.auto()
+    Rpmos = enum.auto()
+    Rtran = enum.auto()
+    Rtranif0 = enum.auto()
+    Rtranif1 = enum.auto()
+    S_always = enum.auto()
+    S_eventually = enum.auto()
+    S_nexttime = enum.auto()
+    S_until = enum.auto()
+    S_until_with = enum.auto()
+    Scalared = enum.auto()
+    Sequence = enum.auto()
+    Showcancelled = enum.auto()
+    Small = enum.auto()
+    Soft = enum.auto()
+    Solve = enum.auto()
+    Specify = enum.auto()
+    Specparam = enum.auto()
+    Strong = enum.auto()
+    Strong0 = enum.auto()
+    Strong1 = enum.auto()
+    Super = enum.auto()
+    Supply0 = enum.auto()
+    Supply1 = enum.auto()
+    Sync_accept_on = enum.auto()
+    Sync_reject_on = enum.auto()
+    Table = enum.auto()
+    Tagged = enum.auto()
+    This = enum.auto()
+    Throughout = enum.auto()
+    Time = enum.auto()
+    Timeprecision = enum.auto()
+    Timeunit = enum.auto()
+    Tran = enum.auto()
+    Tranif0 = enum.auto()
+    Tranif1 = enum.auto()
+    Tri = enum.auto()
+    Tri0 = enum.auto()
+    Tri1 = enum.auto()
+    Triand = enum.auto()
+    Trior = enum.auto()
+    Trireg = enum.auto()
+    Type = enum.auto()
+    Typedef = enum.auto()
+    Unique = enum.auto()
+    Unique0 = enum.auto()
+    Until = enum.auto()
+    Until_with = enum.auto()
+    Untyped = enum.auto()
+    Use = enum.auto()
+    Uwire = enum.auto()
+    Vectored = enum.auto()
+    Void = enum.auto()
+    Wait = enum.auto()
+    Wait_order = enum.auto()
+    Wand = enum.auto()
+    Weak = enum.auto()
+    Weak0 = enum.auto()
+    Weak1 = enum.auto()
+    Wildcard = enum.auto()
+    With = enum.auto()
+    Within = enum.auto()
+    Wor = enum.auto()
+    Xnor = enum.auto()
+    Xor = enum.auto()
+    Identifier = enum.auto()
+    EOF = enum.auto()
 
 
-class InvalidLiteral(Exception):
-    def __init__(self, ldx: int, cdx: int, literal: str):
-        self.ldx = ldx
-        self.cdx = cdx
-        self.literal = literal
+
+def re_cap(pat: str) -> str:
+    return f"({pat})"
 
 
-class UnidentifiableChar(Exception):
-    def __init__(self, ldx: int, cdx: int, char: str):
-        self.ldx = ldx
-        self.cdx = cdx
-        self.char = char
+def re_or(*pats: str) -> str:
+    return r"|".join([f"(?:{pat})" for pat in pats])
 
 
-class UnexpectedBackSlash(Exception):
-    def __init__(self, ldx: int, cdx: int):
-        self.ldx = ldx
-        self.cdx = cdx
+def re_might(pat: str) -> str:
+    return f"(?:{pat})?"
 
 
-keywords = ['module', 'endmodule', 'reg', 'wire', 'var', 'logic', 'bit', 'signed', 'unsigned', 'input', 'output',
-            'inout', 'int', 'integer', 'assign', 'always', 'always_ff', 'always_comb', 'always_latch', 'posedge',
-            'negedge', 'begin', 'end', 'genvar', 'generate', 'if', 'else', 'case', 'endcase', 'for', 'initial']
+token_kinds: list[str] = []
+token_matches: list[tuple[str, re.Pattern[str]]] = []
+reserved_word_pat_pat: re.Pattern[str] = re.compile(r"\^"+r"\\b(\w+)\\b")
+implemented_reserved_word: list[str] = []
 
 
-class Token(Enum):
-    Number = auto()
-    TimeLiteral = auto()
-    StringLiteral = auto()
-    Identifier = auto()
-    Directive = auto()
-    LineComment = auto()
-    BlockComment = auto()
+def register_token_match(kind: str, pat: re.Pattern[str]):
+    assert kind not in token_kinds
+    token_kinds.append(kind)
+    token_matches.append((kind, pat))
+    cap = reserved_word_pat_pat.match(pat.pattern)
+    if cap is not None:
+        implemented_reserved_word.append(cap.group(1))
 
-    Module = auto()
-    EndModule = auto()
-    Reg = auto()
-    Wire = auto()
-    Var = auto()
-    Logic = auto()
-    Bit = auto()
-    Signed = auto()
-    Unsigned = auto()
-    Input = auto()
-    Output = auto()
-    Inout = auto()
 
-    Int = auto()
-    Integer = auto()
-    Real = auto()
+literal_pat_0 = re.compile(r"^"+r"([0-9]*)'([sS]?)([bodhBODH])([_0-9a-fA-F]+)")
+literal_pat_1 = re.compile(r"^"+r"(?:[0-9]+\.)?[0-9]+(?:e[+-]?[0-9]+)?")
+literal_pat_2 = re.compile(r"^"+r"([_0-9]+)")
+literal_pat = re.compile(r"^"+re_or(literal_pat_0.pattern, literal_pat_1.pattern, literal_pat_2.pattern))
+string_literal_pat = re.compile(r"^"+r'"(?:\\.|[^"\\])*(?:\\\n(?:\\.|[^"\\])*)*"')
+identifier_pat = re.compile(r"^"+r"[\$a-zA-Z_][a-zA-Z0-9_]*")
+directive_pat = re.compile(r"^"+r"`"+identifier_pat.pattern[1:])
+line_comment_pat = re.compile(r"^"+r"//.*(?=\n|$)")
+block_comment_pat = re.compile(r"^"+r"/\*.*?\*/", re.DOTALL)
 
-    Parameter = auto()
-    Localparam = auto()
 
-    Assign = auto()
-    Initial = auto()
-    Always = auto()
-    AlwaysFF = auto()
-    AlwaysComb = auto()
-    AlwaysLatch = auto()
-    Posedge = auto()
-    Negedge = auto()
+"""
+how to match token
+note: the order does matter!
+"""
 
-    Begin = auto()
-    End = auto()
-    Genvar = auto()
-    Generate = auto()
-    EndGenerate = auto()
-    If = auto()
-    Else = auto()
-    Case = auto()
-    EndCase = auto()
-    For = auto()
-    String = auto()
-    ShortReal = auto()
-    ShortInt = auto()
-    LongInt = auto()
-    Byte = auto()
+register_token_match("LineComment", line_comment_pat)
+register_token_match("BlockComment", block_comment_pat)
+register_token_match("StringLiteral", string_literal_pat)
+register_token_match("Literal", literal_pat)
+register_token_match("Directive", directive_pat)
 
-    BackQuote = auto()  # '
-    Sharp = auto()  # #
-    LParen = auto()  # (
-    RParen = auto()  # )
-    LBracket = auto()  # [
-    RBracket = auto()  # ]
-    LBrace = auto()  # {
-    RBrace = auto()  # }
-    Comma = auto()  # ,
-    Colon = auto()  # :
-    SemiColon = auto()  # ;
-    At = auto()  # @
-    Dot = auto()  # .
-    SingleQuote = auto()  # '
-    DoubleQuote = auto()  # "
-    Equal = auto()  # =
-    BackSlash = auto()  # \
-    Dollar = auto()  # $
-    QuestionMark = auto()  # ?
+""" symbols and in-divisible operators: systemverilog 2017 standard p255 """
+register_token_match("Inside", re.compile(r"^"+r"\binside\b"))
+register_token_match("dist", re.compile(r"^"+r"\bdist\b"))
 
-    OpAdd = auto()  # +
-    OpSub = auto()  # -
-    OpMul = auto()  # *
-    OpDiv = auto()  # /
-    OpMod = auto()  # %
-    OpEqual = auto()  # ==
-    OpUnequal = auto()  # !=
-    OpGreaterThan = auto()  # >
-    OpNotLessThan = auto()  # >=
-    OpLessThan = auto()  # <
-    OpNotGreaterThan = auto()  # <=
-    OpBitAnd = auto()  # &
-    OpBitOr = auto()  # |
-    OpBitXor = auto()  # ^
-    OpBitNxor1 = auto()  # ~^
-    OpBitNxor2 = auto()  # ^~
-    OpBitInv = auto()  # ~
-    OpAnd = auto()  # &&
-    OpOr = auto()  # ||
-    OpInv = auto()  # !
-    OpLShift = auto()  # <<
-    OpRShift = auto()  # >>
-    OpALShift = auto()  # <<<
-    OpARshift = auto()  # >>>
+register_token_match("ArithLeftShiftAssignment", re.compile(r"^"+r"<<<="))
+register_token_match("ArithRightShiftAssignment", re.compile(r"^"+r">>>="))
 
-    DoubleBackQuote = auto()  # ''
+register_token_match("ArithLeftShift", re.compile(r"^"+r"<<<"))
+register_token_match("ArithRightShift", re.compile(r"^"+r">>>"))
+register_token_match("CaseEqual", re.compile(r"^"+r"==="))
+register_token_match("CaseInEqual", re.compile(r"^"+r"!=="))
+register_token_match("WildcardEqual", re.compile(r"^"+r"==\?"))
+register_token_match("WildcardInEqual", re.compile(r"^"+r"!=\?"))
+register_token_match("LogicLeftShiftAssignment", re.compile(r"^"+r"<<="))
+register_token_match("LogicRightShiftAssignment", re.compile(r"^"+r">>="))
+register_token_match("Equivalence", re.compile(r"^"+r"<->"))
 
-    Second = auto()
-    MiniSecond = auto()
-    MicroSecond = auto()
-    NanoSecond = auto()
-    PicoSecond = auto()
-    FemtoSecond = auto()
+register_token_match("DoubleBackQuote", re.compile(r"^"+r"``"))
+register_token_match("Pow", re.compile(r"^"+r"\*\*"))
+register_token_match("Equal", re.compile(r"^"+r"=="))
+register_token_match("LessEqual", re.compile(r"^"+r"<="))
+register_token_match("GreaterEqual", re.compile(r"^"+r">="))
+register_token_match("LogicAnd", re.compile(r"^"+r"&&"))
+register_token_match("LogicOr", re.compile(r"^"+r"\|\|"))
+register_token_match("LogicLeftShift", re.compile(r"^"+r"<<"))
+register_token_match("LogicRightShift", re.compile(r"^"+r">>"))
+register_token_match("AddAssignment", re.compile(r"^"+r"\+="))
+register_token_match("SubAssignment", re.compile(r"^"+r"\-="))
+register_token_match("MulAssignment", re.compile(r"^"+r"\*="))
+register_token_match("DivAssignment", re.compile(r"^"+r"/="))
+register_token_match("ModAssignment", re.compile(r"^"+r"%="))
+register_token_match("BitAndAssignment", re.compile(r"^"+r"&="))
+register_token_match("BitOrAssignment", re.compile(r"^"+r"\|="))
+register_token_match("BitXorAssignment", re.compile(r"^"+r"\^="))
+register_token_match("Implication", re.compile(r"^"+r"->"))
+register_token_match("ScopeResolution", re.compile(r"^"+r"::"))
+register_token_match("SelfIncrement", re.compile(r"^"+r"\+\+"))
+register_token_match("SelfDecrement", re.compile(r"^"+r"--"))
+register_token_match("SingleQuoteLBrace", re.compile(r"^"+r"'\{"))
 
-    EOF = auto()
+register_token_match("BackQuote", re.compile(r"^"+r"`"))
+register_token_match("SharpPat", re.compile(r"^"+r"#"))
+register_token_match("LParen", re.compile(r"^"+r"\("))
+register_token_match("RParen", re.compile(r"^"+r"\)"))
+register_token_match("LBrace", re.compile(r"^"+r"\{"))
+register_token_match("RBrace", re.compile(r"^"+r"\}"))
+register_token_match("LBracket", re.compile(r"^"+r"\["))
+register_token_match("RBracket", re.compile(r"^"+r"\]"))
+register_token_match("Comma", re.compile(r"^"+r","))
+register_token_match("Colon", re.compile(r"^"+r":"))
+register_token_match("SemiColon", re.compile(r"^"+r";"))
+register_token_match("At", re.compile(r"^"+r"@"))
+register_token_match("Dot", re.compile(r"^"+r"\."))
+register_token_match("SingleQuote", re.compile(r"^"+r"'"))
+register_token_match("DoubleQuote", re.compile(r"^"+r'"'))
+register_token_match("BackSlash", re.compile(r"^"+r"\\"))
+register_token_match("QuestionMark", re.compile(r"^"+r"\?"))
+register_token_match("Assignment", re.compile(r"^"+r"="))
+register_token_match("Add", re.compile(r"^"+r"\+"))
+register_token_match("Sub", re.compile(r"^"+r"\-"))
+register_token_match("Mul", re.compile(r"^"+r"\*"))
+register_token_match("Div", re.compile(r"^"+r"/"))
+register_token_match("Mod", re.compile(r"^"+r"%"))
+register_token_match("BitAnd", re.compile(r"^"+r"&"))
+register_token_match("BitOr", re.compile(r"^"+r"\|"))
+register_token_match("BitXor", re.compile(r"^"+r"\^"))
+register_token_match("BitNot", re.compile(r"^"+r"~"))
+register_token_match("InEqual", re.compile(r"^"+r"!="))
+register_token_match("LogicNot", re.compile(r"^"+r"!"))
+register_token_match("LessThan", re.compile(r"^"+r"<"))
+register_token_match("GreaterThan", re.compile(r"^"+r">"))
 
-    def __eq__(self, other):
-        return self.name == other.name and self.value == other.value
+""" pairs """
+register_token_match("Begin", re.compile(r"^"+r"\bbegin\b"))
+register_token_match("End", re.compile(r"^"+r"\bend\b"))
+register_token_match("Class", re.compile(r"^"+r"\bclass\b"))
+register_token_match("EndClass", re.compile(r"^"+r"\bendclass\b"))
+register_token_match("Case", re.compile(r"^"+r"\bcase\b"))
+register_token_match("EndCase", re.compile(r"^"+r"\bendcase\b"))
+register_token_match("Config", re.compile(r"^"+r"\bconfig\b"))
+register_token_match("EndConfig", re.compile(r"^"+r"\bendconfig\b"))
+register_token_match("Function", re.compile(r"^"+r"\bfunction\b"))
+register_token_match("EndFunction", re.compile(r"^"+r"\bendfunction\b"))
+register_token_match("Generate", re.compile(r"^"+r"\bgenerate\b"))
+register_token_match("EndGenerate", re.compile(r"^"+r"\bendgenerate\b"))
+register_token_match("Group", re.compile(r"^"+r"\bgroup\b"))
+register_token_match("EndGroup", re.compile(r"^"+r"\bendgroup\b"))
+register_token_match("Interface", re.compile(r"^"+r"\binterface\b"))
+register_token_match("EndInterface", re.compile(r"^"+r"\bendinterface\b"))
+register_token_match("Module", re.compile(r"^"+r"\bmodule\b"))
+register_token_match("EndModule", re.compile(r"^"+r"\bendmodule\b"))
+register_token_match("Package", re.compile(r"^"+r"\bpackage\b"))
+register_token_match("EndPackage", re.compile(r"^"+r"\bendpackage\b"))
+register_token_match("Program", re.compile(r"^"+r"\bprogram\b"))
+register_token_match("EndProgram", re.compile(r"^"+r"\bendprogram\b"))
+register_token_match("Property", re.compile(r"^"+r"\bproperty\b"))
+register_token_match("EndProperty", re.compile(r"^"+r"\bendproperty\b"))
+register_token_match("Task", re.compile(r"^"+r"\btask\b"))
+register_token_match("EndTask", re.compile(r"^"+r"\bendtask\b"))
+
+""" control statement """
+register_token_match("If", re.compile(r"^"+r"\bif\b"))
+register_token_match("Else", re.compile(r"^"+r"\belse\b"))
+register_token_match("For", re.compile(r"^"+r"\bfor\b"))
+register_token_match("ForEach", re.compile(r"^"+r"\bforeach\b"))
+register_token_match("Do", re.compile(r"^"+r"\bdo\b"))
+register_token_match("While", re.compile(r"^"+r"\bwhile\b"))
+register_token_match("Break", re.compile(r"^"+r"\bbreak\b"))
+register_token_match("Continue", re.compile(r"^"+r"\bcontinue\b"))
+register_token_match("Return", re.compile(r"^"+r"\breturn\b"))
+
+""" procedure statement """
+register_token_match("Always", re.compile(r"^"+r"\balways\b"))
+register_token_match("AlwaysComb", re.compile(r"^"+r"\balways_comb\b"))
+register_token_match("AlwaysFF", re.compile(r"^"+r"\balways_ff\b"))
+register_token_match("AlwaysLatch", re.compile(r"^"+r"\balways_latch\b"))
+register_token_match("Initial", re.compile(r"^"+r"\binitial\b"))
+register_token_match(f"Final", re.compile(r"^"+r"\bfinal\b"))
+register_token_match("Repeat", re.compile(r"^"+r"\brepeat\b"))
+register_token_match("Forever", re.compile(r"^"+r"\bforever\b"))
+register_token_match("Fork", re.compile(r"^"+r"\bfork\b"))
+register_token_match("Join", re.compile(r"^"+r"\bjoin\b"))
+register_token_match("JoinAny", re.compile(r"^"+r"\bjoin_any\b"))
+register_token_match("JoinNone", re.compile(r"^"+r"\bjoin_none\b"))
+
+""" event """
+register_token_match("Posedge", re.compile(r"^"+r"\bposedge\b"))
+register_token_match("Negedge", re.compile(r"^"+r"\bnegedge\b"))
+
+""" type """
+register_token_match("Int", re.compile(r"^"+r"\bint\b"))
+register_token_match("Integer", re.compile(r"^"+r"\binteger\b"))
+register_token_match("Real", re.compile(r"^"+r"\breal\b"))
+register_token_match("ShortInt", re.compile(r"^"+r"\bshortint\b"))
+register_token_match("ShortReal", re.compile(r"^"+r"\bshortreal\b"))
+register_token_match("LongInt", re.compile(r"^"+r"\blongint\b"))
+register_token_match("Byte", re.compile(r"^"+r"\bbyte\b"))
+register_token_match("String", re.compile(r"^"+r"\bstring\b"))
+register_token_match("Enum", re.compile(r"^"+r"\benum\b"))
+register_token_match("Struct", re.compile(r"^"+r"\bstruct\b"))
+register_token_match("Union", re.compile(r"^"+r"\bunion\b"))
+register_token_match("Const", re.compile(r"^"+r"\bconst\b"))
+register_token_match("Signed", re.compile(r"^"+r"\bsigned\b"))
+register_token_match("Unsigned", re.compile(r"^"+r"\bunsigned\b"))
+register_token_match("Static", re.compile(r"^"+r"\bstatic\b"))
+register_token_match("Auto", re.compile(r"^"+r"\bauto\b"))
+register_token_match("Virtual", re.compile(r"^"+r"\bvirtual\b"))
+register_token_match("Ref", re.compile(r"^"+r"\bref\b"))
+
+register_token_match("Parameter", re.compile(r"^"+r"\bparameter\b"))
+register_token_match("Localparam", re.compile(r"^"+r"\blocalparam\b"))
+register_token_match("Input", re.compile(r"^"+r"\binput\b"))
+register_token_match("Output", re.compile(r"^"+r"\boutput\b"))
+register_token_match("Inout", re.compile(r"^"+r"\binout\b"))
+register_token_match("Wire", re.compile(r"^"+r"\bwire\b"))
+register_token_match("Reg", re.compile(r"^"+r"\breg\b"))
+register_token_match("Var", re.compile(r"^"+r"\bvar\b"))
+register_token_match("Logic", re.compile(r"^"+r"\blogic\b"))
+register_token_match("Bit", re.compile(r"^"+r"\bbit\b"))
+register_token_match("Alias", re.compile(r"^"+r"\balias\b"))
+register_token_match("Assign", re.compile(r"^"+r"\bassign\b"))
+
+""" time """
+register_token_match("Second", re.compile(r"^"+r"\bs\b"))
+register_token_match("MiniSecond", re.compile(r"^"+r"\bms\b"))
+register_token_match("MicroSecond", re.compile(r"^"+r"\bus\b"))
+register_token_match("NanoSecond", re.compile(r"^"+r"\bns\b"))
+register_token_match("PicoSecond", re.compile(r"^"+r"\bps\b"))
+register_token_match("FemtoSecond", re.compile(r"^"+r"\bfs\b"))
+
+for word in reserved_words:
+    if word not in implemented_reserved_word:
+        register_token_match(word[0].upper()+word[1:], re.compile(r"^"+fr"\b{word}\b"))
+register_token_match("Identifier", identifier_pat)
+register_token_match("Dollar", re.compile(r"^"+r"\$"))
+register_token_match("EOF", re.compile('\0'))
+
+#print(f"{implemented_reserved_word}")
+
+
+@dataclasses.dataclass
+class Token:
+    kind: str
+    ldx: int
+    cdx: int
+    val: str
+    src: str
+
+    # def __str__(self):
+    #     return f"kind: {self.kind_:<24}, rdx: {self.rdx:<5}, cdx: {self.cdx:<5}, val: {self.val}"
+
+    def __str__(self):
+        return self.src
+
+    def __repr__(self):
+        return self.__str__()
+
+    @property
+    def kind_(self) -> TokenKind:
+        return TokenKind[self.kind]
+
+    @property
+    def pos(self) -> (int, int):
+        return self.ldx, self.cdx
 
 
 class Lexer:
-    def __init__(self, context: List[str]):
-        self.context: List[str] = context
-        self.ldx: int = 0
-        self.cdx: int = 0
-        self.curTok: Token = None
-        self.curTokPos: Tuple[int, int] = None
-        self.number: str = ""
-        self.timeLiteral: str = ""
-        self.stringLiteral: str = ""
-        self.directive: str = ""
-        self.identifier: str = ""
-        self.lineComment: str = ""
-        self.blockComment: List[str] = []
+    def __init__(self, context: str, eol: str = '\n'):
+        self.eol: str = eol
+        self.context: str = context
+        self.context_len: int = len(context)
+        self.char_num: list[int] = self.get_char_num(context)  # char number per row
+        self.accumulated_char_num: list[int] = \
+            [sum(self.char_num[0:i + 1]) for i in range(len(self.char_num))]
+        self.idx: int = 0
+        self.tokens: list[Token] = []
+        self.tokenize()
 
-        self.stack: List[Tuple[int, int]] = []
+    def get_char_num(self, context: str) -> list[int]:
+        lines = context.split(self.eol)
+        return [len(lines[ldx]) + 1 if ldx != len(lines)-1 else len(lines[ldx]) for ldx in range(len(lines))]
 
-    def push(self):
-        self.stack.append((self.ldx, self.cdx))
+    def get_rcdx_from_idx(self, idx: int) -> (int, int):
+        rdx = bisect.bisect_right(self.accumulated_char_num, idx)
+        if rdx != 0:
+            cdx = idx - self.accumulated_char_num[rdx - 1]
+        else:
+            cdx = idx
+        return rdx, cdx
 
-    def pop(self):
-        self.ldx, self.cdx = self.stack.pop()
-
-    def token(self):
-        return self.curTok
-
-    def next(self):
-        return self.get_next_tok()
-
-    def peek(self, n: int = 1):
-        assert n >= 1
-
-        self.push()
-        tok = None
-        for _ in range(n):
-            tok = self.get_next_tok()
-            if tok == Token.EOF:
-                break
-        self.pop()
-        return tok
-
-    def get_next_tok(self):
+    def tokenize(self):
         while True:
-            line = self.context[self.ldx]
-            while True:
-                char = line[self.cdx]
-
-                if char == '\0':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.curTok = Token.EOF
-                    return self.curTok
-                elif char == '\n':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.ldx += 1
-                    self.cdx = 0
+            remains = self.context[self.idx:]
+            rdx, cdx = self.get_rcdx_from_idx(self.idx)
+            if not remains:
+                token = Token(kind="EOF", ldx=rdx, cdx=cdx, val="\0", src="\0")
+                # print(f"idx: {self.idx:<5}, {token}")
+                self.tokens.append(token)
+                break
+            matched = False
+            if remains[0] == ' ' or remains[0] == '\t' or remains[0] == '\n':
+                self.idx += 1
+                continue
+            if remains[0] == '\0':
+                break
+            for token_match in token_matches:
+                re_pat = token_match[1]
+                _ = re_pat.search(remains)
+                if _ is not None and _.start() == 0:
+                    token = Token(kind=token_match[0], ldx=rdx, cdx=cdx, val=_.group(0), src=_.group(0))
+                    # print(f"idx: {self.idx:<5}, {token}")
+                    self.tokens.append(token)
+                    self.idx += len(_.group(0))
+                    matched = True
                     break
-                elif char == ' ' or char == '\t':
-                    self.cdx += 1
-                elif char == '#':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.Sharp
-                    return self.curTok
-                elif char == '(':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.LParen
-                    return self.curTok
-                elif char == ')':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.RParen
-                    return self.curTok
-                elif char == '[':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.LBracket
-                    return self.curTok
-                elif char == ']':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.RBracket
-                    return self.curTok
-                elif char == '{':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.LBrace
-                    return self.curTok
-                elif char == '}':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.RBrace
-                    return self.curTok
-                elif char == ',':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.Comma
-                    return self.curTok
-                elif char == ':':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.Colon
-                    return self.curTok
-                elif char == ';':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.SemiColon
-                    return self.curTok
-                elif char == '@':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.At
-                    return self.curTok
-                elif char == '.':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.Dot
-                    return self.curTok
-                elif char == '\'':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.SingleQuote
-                    return self.curTok
-                elif char == '$':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.Dollar
-                    return self.curTok
-                elif char == '?':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.QuestionMark
-                    return self.curTok
-                elif char == '+':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.OpAdd
-                    return self.curTok
-                elif char == '-':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.OpSub
-                    return self.curTok
-                elif char == '*':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.OpMul
-                    return self.curTok
-                elif char == '%':
-                    self.curTokPos = self.ldx, self.cdx
-                    self.cdx += 1
-                    self.curTok = Token.OpMod
-                    return self.curTok
-                elif char == '=':
-                    if line[self.cdx + 1] == '=':
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 2
-                        self.curTok = Token.OpEqual
-                        return self.curTok
-                    else:
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 1
-                        self.curTok = Token.Equal
-                        return self.curTok
-                elif char == '!':
-                    if line[self.cdx + 1] == '=':
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 2
-                        self.curTok = Token.OpUnequal
-                        return self.curTok
-                    else:
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 1
-                        self.curTok = Token.OpInv
-                        return self.curTok
-                elif char == '&':
-                    if line[self.cdx + 1] == '&':
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 2
-                        self.curTok = Token.OpAnd
-                        return self.curTok
-                    else:
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 1
-                        self.curTok = Token.OpBitAnd
-                        return self.curTok
-                elif char == '|':
-                    if line[self.cdx + 1] == '|':
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 2
-                        self.curTok = Token.OpOr
-                        return self.curTok
-                    else:
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 1
-                        self.curTok = Token.OpBitOr
-                        return self.curTok
-                elif char == '~':
-                    if line[self.cdx + 1] == '^':
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 2
-                        self.curTok = Token.OpBitNxor1
-                        return self.curTok
-                    else:
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 1
-                        self.curTok = Token.OpBitInv
-                        return self.curTok
-                elif char == '^':
-                    if line[self.cdx + 1] == '~':
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 2
-                        self.curTok = Token.OpBitNxor2
-                        return self.curTok
-                    else:
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 1
-                        self.curTok = Token.OpBitXor
-                        return self.curTok
-                elif char == '>':
-                    if line[self.cdx + 1] == '>':
-                        if line[self.cdx + 2] == '>':
-                            self.curTokPos = self.ldx, self.cdx
-                            self.cdx += 3
-                            self.curTok = Token.OpARshift
-                            return self.curTok
-                        else:
-                            self.curTokPos = self.ldx, self.cdx
-                            self.cdx += 2
-                            self.curTok = Token.OpRshift
-                            return self.curTok
-                    elif line[self.cdx + 1] == '=':
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 2
-                        self.curTok = Token.OpNotLessThan
-                        return self.curTok
-                    else:
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 1
-                        self.curTok = Token.OpGreaterThan
-                        return self.curTok
-                elif char == '<':
-                    if line[self.cdx + 1] == '<':
-                        if line[self.cdx + 2] == '<':
-                            self.curTokPos = self.ldx, self.cdx
-                            self.cdx += 3
-                            self.curTok = Token.OpALshift
-                            return self.curTok
-                        else:
-                            self.curTokPos = self.ldx, self.cdx
-                            self.cdx += 2
-                            self.curTok = Token.OpLshift
-                            return self.curTok
-                    elif line[self.cdx + 1] == '=':
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 2
-                        self.curTok = Token.OpNotGreaterThan
-                        return self.curTok
-                    else:
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 1
-                        self.curTok = Token.OpLessThan
-                        return self.curTok
-                elif char == '`':
-                    if line[self.cdx + 1] == '`':
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 2
-                        self.curTok = Token.DoubleBackQuote
-                        return self.curTok
-                    else:
-                        chars = "" + char
-                        ldx = self.ldx
-                        cdx = self.cdx + 1
-                        while True:
-                            line = self.context[ldx]
-                            while True:
-                                char = line[cdx]
-                                if char == '\0' or char == '\n' or char == ' ' or char == '\t':
-                                    if chars == '`define' or \
-                                            chars == '`undef' or \
-                                            chars == '`timescale' or \
-                                            chars == '`default_nettype' or \
-                                            chars == '`resetall' or \
-                                            chars == '`ifdef' or \
-                                            chars == '`ifndef' or \
-                                            chars == '`else' or \
-                                            chars == '`endif':
-                                        self.curTokPos = self.ldx, self.cdx
-                                        self.curTok = Token.Directive
-                                        self.directive = chars
-                                        self.ldx = ldx
-                                        self.cdx = cdx
-                                        return self.curTok
-                                    else:
-                                        self.curTokPos = self.ldx, self.cdx
-                                        self.curTok = Token.BackQuote
-                                        self.ldx = ldx
-                                        self.cdx = self.cdx + 1
-                                        return self.curTok
-                                else:
-                                    chars += char
-                                    cdx += 1
-                                    if len(char) >= 17:
-                                        self.curTokPos = self.ldx, self.cdx
-                                        self.curTok = Token.BackQuote
-                                        self.ldx = self.ldx
-                                        self.cdx = self.cdx + 1
-                                        return self.curTok
-                elif char == '\"':
-                    chars = "" + char
-                    ldx = self.ldx
-                    cdx = self.cdx + 1
-                    while True:
-                        line = self.context[ldx]
-                        while True:
-                            char = line[cdx]
-                            if char == '\\':
-                                if line[cdx + 1] == '\n':
-                                    ldx += 1
-                                    cdx = 0
-                                    break
-                                if line[cdx + 1] == '\"':
-                                    cdx += 2
-                                    chars += "\""
-                                    continue
-                                else:
-                                    chars += char
-                                    cdx += 1
-                            elif char == '\0' or char == '\n' or char == ' ' or char == '\t':
-                                self.curTokPos = self.ldx, self.cdx
-                                self.curTok = Token.StringLiteral
-                                self.ldx = ldx
-                                self.cdx = cdx
-                                raise UnterminatedStringLiteral(*self.curTokPos, chars)
-                            elif char == '\"':
-                                chars += char
-                                cdx += 1
-                                self.curTokPos = self.ldx, self.cdx
-                                self.curTok = Token.StringLiteral
-                                self.stringLiteral = chars
-                                self.ldx = ldx
-                                self.cdx = cdx
-                                return self.curTok
-                            else:
-                                chars += char
-                                cdx += 1
-                elif char == '/':
-                    if line[self.cdx + 1] == '/':
-                        cdx = self.cdx + 2
-                        lineComment = "" + "//"
-                        while True:
-                            char = line[cdx]
-                            if char == '\n' or char == '\0':
-                                self.curTokPos = self.ldx, self.cdx
-                                self.curTok = Token.LineComment
-                                self.lineComment = lineComment
-                                self.cdx = cdx
-                                return self.curTok
-                            else:
-                                cdx += 1
-                                lineComment += char
-                    elif line[self.cdx + 1] == '*':
-                        ldx = self.ldx
-                        cdx = self.cdx + 2
-                        blockComment = []
-                        lineComment = "/*"
-                        while True:
-                            line = self.context[ldx]
-                            while True:
-                                char = line[cdx]
-                                if char == '\0':
-                                    blockComment.append(lineComment)
-                                    self.curTokPos = self.ldx, self.cdx
-                                    self.curTok = Token.BlockComment
-                                    self.blockComment = blockComment
-                                    self.ldx = ldx
-                                    self.cdx = cdx
-                                    raise UnterminatedBlockComment(*self.curTokPos, blockComment)
-                                elif char == '\n':
-                                    lineComment += "\n"
-                                    blockComment.append(lineComment)
-                                    ldx += 1
-                                    cdx = 0
-                                    break
-                                elif char == '*':
-                                    if line[cdx + 1] == '/':
-                                        cdx += 2
-                                        lineComment += "*/"
-                                        blockComment.append(lineComment)
-                                        self.curTokPos = self.ldx, self.cdx
-                                        self.curTok = Token.BlockComment
-                                        self.blockComment = blockComment
-                                        self.ldx = ldx
-                                        self.cdx = cdx
-                                        return self.curTok
-                                    else:
-                                        cdx += 1
-                                        lineComment += char
-                                        continue
-                                else:
-                                    lineComment += char
-                                    cdx += 1
-                                    continue
-                    else:
-                        self.curTokPos = self.ldx, self.cdx
-                        self.cdx += 1
-                        self.curTok = Token.OpDiv
-                        return self.curTok
-                elif re.match("[0-9]", char):  # the handling of '\' is different from verdi
-                    literal = "" + char
-                    ldx = self.ldx
-                    cdx = self.cdx + 1
-                    accept_dot = True
-                    accept_E = True
-                    while True:
-                        line = self.context[ldx]
-                        while True:
-                            char = line[cdx]
-                            if char == '\\':
-                                if line[cdx + 1] == '\n':
-                                    ldx += 1
-                                    cdx = 0
-                                    break
-                                else:
-                                    cdx += 1
-                                    self.curTokPos = self.ldx, self.cdx
-                                    self.curTok = Token.Number
-                                    self.ldx = ldx
-                                    self.cdx = cdx
-                                    raise UnexpectedBackSlash(ldx, cdx - 1)
-                            elif char == '\'':
-                                literal += '\''
-                                if re.match('[sS]', line[cdx+1]):
-                                    literal += line[cdx+1]
-                                    cdx += 1
-                                if not re.match('[bBdDoOhH]', line[cdx + 1]):
-                                    cdx += 1
-                                    self.curTokPos = self.ldx, self.cdx
-                                    self.curTok = Token.Number
-                                    self.number = literal
-                                    self.ldx = ldx
-                                    self.cdx = cdx
-                                    raise InvalidLiteral(*self.curTokPos, literal+line[cdx + 1])
-                                else:  # xx'h
-                                    literal += f"{line[cdx + 1]}"
-                                    cdx += 2
-                                    while True:
-                                        line = self.context[ldx]
-                                        while True:
-                                            char = line[cdx]
-                                            if char == '\\':
-                                                if line[cdx + 1] == '\n':
-                                                    ldx += 1
-                                                    cdx = 0
-                                                    break
-                                                else:
-                                                    cdx += 1
-                                                    self.curTokPos = self.ldx, self.cdx
-                                                    self.curTok = Token.Number
-                                                    self.ldx = ldx
-                                                    self.cdx = cdx
-                                                    raise UnexpectedBackSlash(ldx, cdx - 1)
-                                            elif re.match("[_0-9a-fA-F]", char):
-                                                cdx += 1
-                                                literal += char
-                                                continue
-                                            else:
-                                                self.curTokPos = self.ldx, self.cdx
-                                                self.curTok = Token.Number
-                                                self.number = literal
-                                                self.ldx = ldx
-                                                self.cdx = cdx
-                                                return self.curTok
-                            elif char == '.':
-                                if accept_dot:
-                                    cdx += 1
-                                    literal += char
-                                    accept_dot = False
-                                else:
-                                    cdx += 1
-                                    self.curTokPos = self.ldx, self.cdx
-                                    self.curTok = Token.Number
-                                    self.number = literal
-                                    self.ldx = ldx
-                                    self.cdx = cdx
-                                    raise InvalidLiteral(*self.curTokPos, literal+char)
-                            elif char == 'e' or char == 'E':
-                                if accept_E:
-                                    cdx += 1
-                                    literal += char
-                                    accept_E = False
-                                else:
-                                    cdx += 1
-                                    self.curTokPos = self.ldx, self.cdx
-                                    self.curTok = Token.Number
-                                    self.number = literal
-                                    self.ldx = ldx
-                                    self.cdx = cdx
-                                    raise InvalidLiteral(*self.curTokPos, literal+char)
-                            elif re.match("[_0-9]", char):
-                                cdx += 1
-                                literal += char
-                                continue
-                            elif char == 'm' or char == 'u' or char == 'n' or char == 'p' or char == 'f':
-                                unit = char
-                                cdx = self.cdx + 1
-                                char = line[cdx]
-                                if char == 's':
-                                    self.curTokPos = self.ldx, self.cdx
-                                    self.curTok = Token.TimeLiteral
-                                    self.timeLiteral = f"{literal}{unit}s"
-                                    self.ldx = ldx
-                                    self.cdx = cdx
-                                    return self.curTok
-                                else:
-                                    cdx += 1
-                                    self.curTokPos = self.ldx, self.cdx
-                                    self.curTok = Token.Number
-                                    self.number = literal
-                                    self.ldx = ldx
-                                    self.cdx = cdx
-                                    raise InvalidLiteral(*self.curTokPos, literal+char)
-                            elif char == 's':
-                                self.curTokPos = self.ldx, self.cdx
-                                self.curTok = Token.TimeLiteral
-                                self.timeLiteral = f"{literal}s"
-                                self.ldx = ldx
-                                self.cdx = cdx
-                                return self.curTok
-                            else:
-                                self.curTokPos = self.ldx, self.cdx
-                                self.curTok = Token.Number
-                                self.number = literal
-                                self.ldx = ldx
-                                self.cdx = cdx
-                                return self.curTok
-                elif re.match('[_a-zA-Z]', char):
-                    identifier = "" + char
-                    cdx = self.cdx + 1
-                    while True:
-                        char = line[cdx]
-                        if re.match('[_0-9a-zA-Z]', char):
-                            cdx += 1
-                            identifier += char
-                            continue
-                        else:
-                            self.curTokPos = self.ldx, self.cdx
-                            if identifier == "module":
-                                self.curTok = Token.Module
-                            elif identifier == "endmodule":
-                                self.curTok = Token.EndModule
-                            elif identifier == "reg":
-                                self.curTok = Token.Reg
-                            elif identifier == "wire":
-                                self.curTok = Token.Wire
-                            elif identifier == "var":
-                                self.curTok = Token.Var
-                            elif identifier == "signed":
-                                self.curTok = Token.Signed
-                            elif identifier == "unsigned":
-                                self.curTok = Token.Unsigned
-                            elif identifier == "input":
-                                self.curTok = Token.Input
-                            elif identifier == "output":
-                                self.curTok = Token.Output
-                            elif identifier == "input":
-                                self.curTok = Token.Inout
-                            elif identifier == "int":
-                                self.curTok = Token.Int
-                            elif identifier == "integer":
-                                self.curTok = Token.Integer
-                            elif identifier == "real":
-                                self.curTok = Token.Real
-                            elif identifier == "parameter":
-                                self.curTok = Token.Parameter
-                            elif identifier == "localparam":
-                                self.curTok = Token.Localparam
-                            elif identifier == "assign":
-                                self.curTok = Token.Assign
-                            elif identifier == "initial":
-                                self.curTok = Token.Initial
-                            elif identifier == "always":
-                                self.curTok = Token.Always
-                            elif identifier == "always_ff":
-                                self.curTok = Token.AlwaysFF
-                            elif identifier == "always_comb":
-                                self.curTok = Token.AlwaysComb
-                            elif identifier == "always_latch":
-                                self.curTok = Token.AlwaysLatch
-                            elif identifier == "Posedge":
-                                self.curTok = Token.Posedge
-                            elif identifier == "negedge":
-                                self.curTok = Token.Negedge
-                            elif identifier == "begin":
-                                self.curTok = Token.Begin
-                            elif identifier == "end":
-                                self.curTok = Token.End
-                            elif identifier == "generate":
-                                self.curTok = Token.Generate
-                            elif identifier == "if":
-                                self.curTok = Token.If
-                            elif identifier == "else":
-                                self.curTok = Token.Else
-                            elif identifier == "case":
-                                self.curTok = Token.Case
-                            elif identifier == "endcase":
-                                self.curTok = Token.EndCase
-                            elif identifier == "s":
-                                self.curTok = Token.Second
-                            elif identifier == "ms":
-                                self.curTok = Token.MiniSecond
-                            elif identifier == "us":
-                                self.curTok = Token.MicroSecond
-                            elif identifier == "ns":
-                                self.curTok = Token.NanoSecond
-                                pass
-                            elif identifier == "ps":
-                                self.curTok = Token.PicoSecond
-                            elif identifier == "fs":
-                                self.curTok = Token.FemtoSecond
-                            elif identifier == "string":
-                                self.curTok = Token.String
-                            elif identifier == "shortint":
-                                self.curTok = Token.ShortInt
-                            elif identifier == "longint":
-                                self.curTok = Token.LongInt
-                            elif identifier == "shortreal":
-                                self.curTok = Token.ShortReal
-                            elif identifier == "byte":
-                                self.curTok = Token.Byte
-                            else:
-                                self.curTok = Token.Identifier
-                                self.identifier = identifier
-                            for t in Token:
-                                if identifier == t.name.lower():
-                                    self.curTok = t
-                            self.cdx = cdx
-                            return self.curTok
-                elif char == '\\':
-                    if line[self.cdx + 1] == '\n':
-                        self.ldx += 1
-                        self.cdx = 0
-                        break
-                    else:
-                        self.curTokPos = self.ldx, self.cdx
-                        self.curTok = Token.BackSlash
-                        self.cdx += 1
-                        raise UnexpectedBackSlash(*self.curTokPos)
-                else:
-                    raise UnidentifiableChar(self.ldx, self.cdx, char)
+            if not matched:
+                assert 0, f"invalid syntax, idx: {self.idx}, rdx: {rdx}, cdx: {cdx}, remains:\n"\
+                          f"{remains}"
 
 
 if __name__ == "__main__":
-    context = []
-    with open("./rich_grammar.sv", 'r', encoding="utf-8") as v:
-        for line in v:
-            context.append(line)
-    if len(context) > 0:
-        context[-1] = context[-1] + '\0'
-    lexer = Lexer(context)
-    token = lexer.get_next_tok()
-    while token != Token.EOF:
-        print(f"line {lexer.curTokPos[0] + 1:<3}, column {lexer.curTokPos[1] + 1:<3}, {token.name:<20}: ", end='')
-        if token == Token.Directive:
-            print(f"{lexer.directive}")
-        elif token == Token.Identifier:
-            print(f"{lexer.identifier}")
-        elif token == Token.LineComment:
-            print(f"{lexer.lineComment}")
-        elif token == Token.BlockComment:
-            print(f"{lexer.blockComment}")
-        elif token == Token.Number:
-            print(f"{lexer.number}")
-        else:
-            print(f"")
-        token = lexer.get_next_tok()
+    code = r"8'b0"
+    _ = literal_pat.match(code)
+    assert _ is not None
+
+    code = r"16'sh17ff"
+    _ = literal_pat.match(code)
+    assert _ is not None
+
+    code = r"'o777"
+    _ = literal_pat.match(code)
+    assert _ is not None
+
+    code = r"1324"
+    _ = literal_pat.match(code)
+    assert _ is not None
+
+    code = r'''"Humpty Dumpty sat on a wall. \
+    Humpty Dumpty had a great fall."
+    '''
+    _ = string_literal_pat.search(code)
+    assert _ is not None
+
+    code = r"foo"
+    _ = identifier_pat.match(code)
+    assert _ is not None
+
+    code = r"bar_"
+    _ = identifier_pat.match(code)
+    assert _ is not None
+
+    code = "`timescale"
+    _ = directive_pat.match(code)
+    assert _ is not None
+
+    code = "`define"
+    _ = directive_pat.match(code)
+    assert _ is not None
+
+    code = "// comment // comment"
+    _ = line_comment_pat.match(code)
+    assert _ is not None
+
+    code = "/* comment */"
+    _ = block_comment_pat.match(code)
+    assert _ is not None
+
+    code = """/* comment
+    /*
+    */
+    """
+    _ = block_comment_pat.match(code)
+    print(code)
+    assert _ is not None
+
+    with open("./rich_grammar.sv", 'r', encoding='utf-8') as f:
+        context = f.read()
+
+    lexer = Lexer(context=context)

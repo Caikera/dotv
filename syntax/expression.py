@@ -1,7 +1,7 @@
 import dataclasses
 
-from lexer_ import Token
-from syntax.node_ import Expression, SyntaxNode
+from lexer import Token
+from syntax.node import Expression, SyntaxNode
 
 
 @dataclasses.dataclass

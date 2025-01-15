@@ -1,9 +1,9 @@
 import dataclasses
 
-from lexer_ import Token, TokenKind
+from lexer import Token, TokenKind
 from syntax.expression import *
 from parser import log, Context, ParserError, SourceInfo
-from syntax.node_ import node_as_dict
+from syntax.node import node_as_dict
 
 
 def bp(token: Token, prefix: bool = False, assign_statement: bool = False) -> int:
@@ -76,13 +76,14 @@ led_prefix = [TokenKind.LBracket, TokenKind.ScopeResolution, TokenKind.Dot,
               TokenKind.BitOrAssignment, TokenKind.LogicLeftShiftAssignment, TokenKind.LogicRightShiftAssignment]
 
 
-def parse_expression(depth: int, src_info: SourceInfo, ctx: Context, ctx_bp: int) -> Expression:
+def parse_expression(depth: int, ctx: Context, ctx_bp: int) -> Expression:
     token = ctx.current()
     if token is None or token.kind_ == TokenKind.EOF:
-        log.fatal(f"no tokens to parse expression\n")
+        log.fatal(f"no tokens to parse expression\n"
+                  f"{ctx.src_info.error_context(ctx.near().ldx, ctx.near().cdx)}\n")
         raise ParserError
 
-    lhs = nud(src_info=src_info, ctx=ctx, token=token, depth=depth)
+    lhs = nud(ctx=ctx, token=token, depth=depth)
     while True:
         # log.hint(f"lhs: {lhs}, ctx_bp: {ctx_bp}\n")
         operator = ctx.current()
@@ -94,13 +95,13 @@ def parse_expression(depth: int, src_info: SourceInfo, ctx: Context, ctx_bp: int
         # log.hint(f"operator: {operator}, bp: {obp}\n")
         if bp(token=operator, prefix=False, assign_statement=depth==0) <= ctx_bp:
             break
-        lhs = led(src_info=src_info, ctx=ctx, operator=operator, lhs=lhs, depth=depth)
+        lhs = led(ctx=ctx, operator=operator, lhs=lhs, depth=depth)
     return lhs
 
 
-def parse_args(depth: int, src_info: SourceInfo, ctx: Context, ctx_bp: int, stop_by: TokenKind) -> Args:
+def parse_args(depth: int, ctx: Context, ctx_bp: int, stop_by: TokenKind) -> Args:
     token = ctx.current()
-    ldx = token.rdx
+    ldx = token.ldx
     cdx = token.cdx
 
     tokens = []
@@ -109,13 +110,13 @@ def parse_args(depth: int, src_info: SourceInfo, ctx: Context, ctx_bp: int, stop
         token = ctx.current()
         if token is None or token.kind_ == stop_by:
             break
-        expr = parse_expression(depth=depth, src_info=src_info, ctx=ctx, ctx_bp=ctx_bp)
+        expr = parse_expression(depth=depth, ctx=ctx, ctx_bp=ctx_bp)
         tokens.extend(expr.tokens)
         args.append(expr)
         token = ctx.current()
         if token is None or token.kind_ != TokenKind.Comma and token.kind_ != stop_by:
             log.fatal(f"invalid syntax for argument list, expecting ',' or {stop_by}\n"
-                      f"{src_info.error_context(rdx=ldx, cdx=cdx)}\n")
+                      f"{ctx.src_info.error_context(ldx=ctx.near().ldx, cdx=ctx.near().cdx)}\n")
             raise ParserError
         if token.kind_ == TokenKind.Comma:
             ctx.consume()
@@ -124,56 +125,56 @@ def parse_args(depth: int, src_info: SourceInfo, ctx: Context, ctx_bp: int, stop
                 args=args)
 
 
-def nud(src_info: SourceInfo, ctx: Context, token: Token, depth: int = 0) -> Expression:
+def nud(ctx: Context, token: Token, depth: int = 0) -> Expression:
     if token.kind_ == TokenKind.Add:
         ctx.consume()
-        src = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(token, prefix=True))
-        return UnaryPlus(ldx=token.rdx, cdx=token.cdx, tokens=[token]+src.tokens, expr=src)
+        src = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(token, prefix=True))
+        return UnaryPlus(ldx=token.ldx, cdx=token.cdx, tokens=[token] + src.tokens, expr=src)
     elif token.kind_ == TokenKind.Sub:
         ctx.consume()
-        src = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(token, prefix=True))
-        return UnaryMinus(ldx=token.rdx, cdx=token.cdx, tokens=[token]+src.tokens, expr=src)
+        src = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(token, prefix=True))
+        return UnaryMinus(ldx=token.ldx, cdx=token.cdx, tokens=[token] + src.tokens, expr=src)
     elif token.kind_ == TokenKind.BitAnd:
         ctx.consume()
-        src = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(token, prefix=True))
-        return ReducedAnd(ldx=token.rdx, cdx=token.cdx, tokens=[token]+src.tokens, expr=src)
+        src = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(token, prefix=True))
+        return ReducedAnd(ldx=token.ldx, cdx=token.cdx, tokens=[token] + src.tokens, expr=src)
     elif token.kind_ == TokenKind.BitOr:
         ctx.consume()
-        src = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(token, prefix=True))
-        return ReducedOr(ldx=token.rdx, cdx=token.cdx, tokens=[token]+src.tokens, expr=src)
+        src = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(token, prefix=True))
+        return ReducedOr(ldx=token.ldx, cdx=token.cdx, tokens=[token] + src.tokens, expr=src)
     elif token.kind_ == TokenKind.BitXor:
         ctx.consume()
-        src = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(token, prefix=True))
-        return ReducedXor(ldx=token.rdx, cdx=token.cdx, tokens=[token]+src.tokens, expr=src)
+        src = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(token, prefix=True))
+        return ReducedXor(ldx=token.ldx, cdx=token.cdx, tokens=[token] + src.tokens, expr=src)
     elif token.kind_ == TokenKind.BitNot:
         ctx.consume()
-        src = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(token, prefix=True))
-        return BitNot(ldx=token.rdx, cdx=token.cdx, tokens=[token]+src.tokens, expr=src)
+        src = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(token, prefix=True))
+        return BitNot(ldx=token.ldx, cdx=token.cdx, tokens=[token] + src.tokens, expr=src)
     elif token.kind_ == TokenKind.LogicNot:
         ctx.consume()
-        src = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(token, prefix=True))
-        return LogicNot(ldx=token.rdx, cdx=token.cdx, tokens=[token] + src.tokens, expr=src)
+        src = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(token, prefix=True))
+        return LogicNot(ldx=token.ldx, cdx=token.cdx, tokens=[token] + src.tokens, expr=src)
     elif token.kind_ == TokenKind.LParen:
         start_idx = ctx.token_idx
         ctx.consume()
-        expr = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=0)
+        expr = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=0)
         token = ctx.current()
         end_idx = ctx.token_idx
         if token.kind_ != TokenKind.RParen:
             log.fatal(f"invalid syntax for expression, no matching ')' for '(',\n"
-                      f"{src_info.error_context(token.rdx, token.cdx)}\n")
+                      f"{ctx.src_info.error_context(token.ldx, token.cdx)}\n")
         ctx.consume()
-        return Parenthesis(ldx=token.rdx, cdx=token.cdx, tokens=ctx.tokens[start_idx:end_idx+1], expression=expr)
+        return Parenthesis(ldx=token.ldx, cdx=token.cdx, tokens=ctx.tokens[start_idx:end_idx + 1], expression=expr)
     elif token.kind_ == TokenKind.SingleQuoteLBrace:
         start_idx = ctx.token_idx
-        ldx = token.rdx
+        ldx = token.ldx
         cdx = token.cdx
         ctx.consume()
-        args = parse_args(depth=depth + 1, src_info=src_info, ctx=ctx, ctx_bp=0, stop_by=TokenKind.RBrace)
+        args = parse_args(depth=depth + 1, ctx=ctx, ctx_bp=0, stop_by=TokenKind.RBrace)
         token = ctx.current()
         if token.kind_ != TokenKind.RBrace:
             log.fatal(f"invalid syntax for expression, no matching '}}' for '{{',\n"
-                      f"{src_info.error_context(token.rdx, token.cdx)}\n")
+                      f"{ctx.src_info.error_context(token.ldx, token.cdx)}\n")
             raise ParserError
         end_idx = ctx.token_idx
         ctx.consume()
@@ -182,25 +183,25 @@ def nud(src_info: SourceInfo, ctx: Context, token: Token, depth: int = 0) -> Exp
 
     elif token.kind_ == TokenKind.LBrace:
         start_idx = ctx.token_idx
-        ldx = token.rdx
+        ldx = token.ldx
         cdx = token.cdx
         ctx.consume()
 
-        first_expr = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=0)
+        first_expr = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=0)
         token = ctx.current()
         if token.kind_ == TokenKind.LBrace:
             ctx.consume()
-            args = parse_args(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=0, stop_by=TokenKind.RBrace)
+            args = parse_args(depth=depth+1, ctx=ctx, ctx_bp=0, stop_by=TokenKind.RBrace)
             token = ctx.current()
             if token.kind_ != TokenKind.RBrace:
                 log.fatal(f"invalid syntax for expression, no matching '}}' for '{{',\n"
-                          f"{src_info.error_context(token.rdx, token.cdx)}\n")
+                          f"{ctx.src_info.error_context(token.ldx, token.cdx)}\n")
                 raise ParserError
             ctx.consume()
             token = ctx.current()
             if token.kind_ != TokenKind.RBrace:
                 log.fatal(f"invalid syntax for expression, no matching '}}' for '{{',\n"
-                          f"{src_info.error_context(token.rdx, token.cdx)}\n")
+                          f"{ctx.src_info.error_context(token.ldx, token.cdx)}\n")
                 raise ParserError
             end_idx = ctx.token_idx
             ctx.consume()
@@ -208,11 +209,11 @@ def nud(src_info: SourceInfo, ctx: Context, token: Token, depth: int = 0) -> Exp
                           times=first_expr, expr=args)
         else:
             ctx.token_idx = start_idx + 1
-            args = parse_args(depth=depth + 1, src_info=src_info, ctx=ctx, ctx_bp=0, stop_by=TokenKind.RBrace)
+            args = parse_args(depth=depth + 1, ctx=ctx, ctx_bp=0, stop_by=TokenKind.RBrace)
             token = ctx.current()
             if token.kind_ != TokenKind.RBrace:
                 log.fatal(f"invalid syntax for expression, no matching '}}' for '{{',\n"
-                          f"{src_info.error_context(token.rdx, token.cdx)}\n")
+                          f"{ctx.src_info.error_context(token.ldx, token.cdx)}\n")
                 raise ParserError
             end_idx = ctx.token_idx
             ctx.consume()
@@ -220,23 +221,23 @@ def nud(src_info: SourceInfo, ctx: Context, token: Token, depth: int = 0) -> Exp
                                  args=args)
     elif token.kind_ in [TokenKind.Literal, TokenKind.StringLiteral]:
         ctx.consume()
-        return Literal(ldx=token.rdx, cdx=token.cdx, tokens=[token], literal=token)
+        return Literal(ldx=token.ldx, cdx=token.cdx, tokens=[token], literal=token)
     elif token.kind_ == TokenKind.Identifier:
         ctx.consume()
-        identifier = Identifier(ldx=token.rdx, cdx=token.cdx, tokens=[token], identifier=token)
+        identifier = Identifier(ldx=token.ldx, cdx=token.cdx, tokens=[token], identifier=token)
         token = ctx.current()
         if token is None:
             return identifier
-        ldx = token.rdx
+        ldx = token.ldx
         cdx = token.cdx
         if token.kind_ == TokenKind.LParen:
             lparen = token
             ctx.consume()
-            args = parse_args(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=0, stop_by=TokenKind.RParen)
+            args = parse_args(depth=depth+1, ctx=ctx, ctx_bp=0, stop_by=TokenKind.RParen)
             token = ctx.current()
             if token.kind_ != TokenKind.RParen:
                 log.fatal(f"syntax error, no matching ')' for '(' in expression,\n"
-                          f"{src_info.error_context(token.rdx, token.cdx)}\n")
+                          f"{ctx.src_info.error_context(token.ldx, token.cdx)}\n")
                 raise ParserError
             ctx.consume()
             return FuncCall(ldx=ldx, cdx=cdx, tokens=identifier.tokens+[lparen]+args.tokens+[token],
@@ -245,162 +246,163 @@ def nud(src_info: SourceInfo, ctx: Context, token: Token, depth: int = 0) -> Exp
         else:
             return identifier
     else:
-        log.fatal(f"invalid token `{token}` for nud\n")
+        log.fatal(f"invalid token `{token}` for nud\n"
+                  f"{ctx.src_info.error_context(token.ldx, token.cdx)}\n")
         raise ParserError
 
 
-def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, depth: int) -> Expression:
+def led(ctx: Context, operator: Token, lhs: Expression, depth: int) -> Expression:
     if operator.kind_ == TokenKind.LBracket:
         ctx.consume()
-        expr_l = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=0)
+        expr_l = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=0)
         token = ctx.current()
         if token.kind_ == TokenKind.RBracket:
             ctx.consume()
-            return Index(ldx=operator.rdx, cdx=operator.cdx,
+            return Index(ldx=operator.ldx, cdx=operator.cdx,
                          tokens=lhs.tokens + [operator] + expr_l.tokens + [token],
                          src=lhs,
                          idx=expr_l)
         if token.kind_ != TokenKind.Colon:
             log.fatal(f"invalid syntax for expression, expecting ']' or ':',\n"
-                      f"{src_info.error_context(token.rdx, token.cdx)}\n")
+                      f"{ctx.src_info.error_context(token.ldx, token.cdx)}\n")
         colon = token
         ctx.consume()
-        expr_r = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=0)
+        expr_r = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=0)
         token = ctx.current()
         if token.kind_ != TokenKind.RBracket:
             log.fatal(f"invalid syntax for expression, expecting ']'\n"
-                      f"{src_info.error_context(token.rdx, token.cdx)}\n")
+                      f"{ctx.src_info.error_context(token.ldx, token.cdx)}\n")
         ctx.consume()
-        return Slice(ldx=operator.rdx, cdx=operator.cdx,
+        return Slice(ldx=operator.ldx, cdx=operator.cdx,
                      tokens=lhs.tokens + [operator] + expr_l.tokens + [colon] + expr_r.tokens + [token],
                      src=lhs,
                      left_idx=expr_l,
                      right_idx=expr_r)
     elif operator.kind_ == TokenKind.QuestionMark:
         ctx.consume()
-        true_val = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=0)
+        true_val = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=0)
         token = ctx.current()
         if token.kind_ != TokenKind.Colon:
             log.fatal(f"invalid syntax for expression, expecting ':'\n"
-                      f"{src_info.error_context(token.rdx, token.cdx)}\n")
+                      f"{ctx.src_info.error_context(token.ldx, token.cdx)}\n")
         colon = token
         ctx.consume()
-        false_val = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=0)
-        return Conditional(ldx=operator.rdx, cdx=operator.cdx,
+        false_val = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=0)
+        return Conditional(ldx=operator.ldx, cdx=operator.cdx,
                            tokens=lhs.tokens + [operator] + true_val.tokens + [colon] + false_val.tokens,
                            condition=lhs,
                            true_expr=true_val,
                            false_expr=false_val)
     elif operator.kind_ == TokenKind.ScopeResolution:
         ctx.consume()
-        name = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return ScopeResolution(ldx=operator.rdx, cdx=operator.cdx,
+        name = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return ScopeResolution(ldx=operator.ldx, cdx=operator.cdx,
                                tokens=lhs.tokens + [operator] + name.tokens,
                                left=lhs,
                                right=name)
     elif operator.kind_ == TokenKind.Dot:
         ctx.consume()
-        name = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return MemberAccess(ldx=operator.rdx, cdx=operator.cdx,
+        name = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return MemberAccess(ldx=operator.ldx, cdx=operator.cdx,
                             tokens=lhs.tokens + [operator] + name.tokens,
                             left=lhs,
                             right=name)
     elif operator.kind_ == TokenKind.Pow:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return Pow(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return Pow(ldx=operator.ldx, cdx=operator.cdx,
                    tokens=lhs.tokens + [operator] + rop.tokens,
                    left=lhs,
                    right=rop)
     elif operator.kind_ == TokenKind.Mul:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return Mul(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return Mul(ldx=operator.ldx, cdx=operator.cdx,
                    tokens=lhs.tokens + [operator] + rop.tokens,
                    left=lhs,
                    right=rop)
     elif operator.kind_ == TokenKind.Div:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return Div(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return Div(ldx=operator.ldx, cdx=operator.cdx,
                    tokens=lhs.tokens + [operator] + rop.tokens,
                    left=lhs,
                    right=rop)
     elif operator.kind_ == TokenKind.Mod:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return Mod(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return Mod(ldx=operator.ldx, cdx=operator.cdx,
                    tokens=lhs.tokens + [operator] + rop.tokens,
                    left=lhs,
                    right=rop)
     elif operator.kind_ == TokenKind.Add:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, prefix=False))
-        return Add(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, prefix=False))
+        return Add(ldx=operator.ldx, cdx=operator.cdx,
                    tokens=lhs.tokens + [operator] + rop.tokens,
                    left=lhs,
                    right=rop)
     elif operator.kind_ == TokenKind.Sub:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, prefix=False))
-        return Sub(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, prefix=False))
+        return Sub(ldx=operator.ldx, cdx=operator.cdx,
                    tokens=lhs.tokens + [operator] + rop.tokens,
                    left=lhs,
                    right=rop)
     elif operator.kind_ == TokenKind.LogicLeftShift:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return LogicLeftShift(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return LogicLeftShift(ldx=operator.ldx, cdx=operator.cdx,
                               tokens=lhs.tokens + [operator] + rop.tokens,
                               left=lhs,
                               right=rop)
     elif operator.kind_ == TokenKind.LogicRightShift:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return LogicRightShift(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return LogicRightShift(ldx=operator.ldx, cdx=operator.cdx,
                                tokens=lhs.tokens + [operator] + rop.tokens,
                                left=lhs,
                                right=rop)
     elif operator.kind_ == TokenKind.ArithLeftShift:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return ArithmeticLeftShift(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return ArithmeticLeftShift(ldx=operator.ldx, cdx=operator.cdx,
                                    tokens=lhs.tokens + [operator] + rop.tokens,
                                    left=lhs,
                                    right=rop)
     elif operator.kind_ == TokenKind.ArithRightShift:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return ArithmeticRightShift(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return ArithmeticRightShift(ldx=operator.ldx, cdx=operator.cdx,
                                     tokens=lhs.tokens + [operator] + rop.tokens,
                                     left=lhs,
                                     right=rop)
     elif operator.kind_ == TokenKind.GreaterThan:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return GreaterThan(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return GreaterThan(ldx=operator.ldx, cdx=operator.cdx,
                            tokens=lhs.tokens + [operator] + rop.tokens,
                            left=lhs,
                            right=rop)
     elif operator.kind_ == TokenKind.GreaterEqual:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return GreaterThanEqual(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return GreaterThanEqual(ldx=operator.ldx, cdx=operator.cdx,
                                 tokens=lhs.tokens + [operator] + rop.tokens,
                                 left=lhs,
                                 right=rop)
     elif operator.kind_ == TokenKind.LessThan:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return LessThan(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return LessThan(ldx=operator.ldx, cdx=operator.cdx,
                         tokens=lhs.tokens + [operator] + rop.tokens,
                         left=lhs,
                         right=rop)
     elif operator.kind_ == TokenKind.LessEqual:
         ctx.consume()
         if depth != 0:
-            rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=False))
-            return LessThanEqual(ldx=operator.rdx, cdx=operator.cdx,
+            rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=False))
+            return LessThanEqual(ldx=operator.ldx, cdx=operator.cdx,
                                  tokens=lhs.tokens + [operator] + rop.tokens,
                                  left=lhs,
                                  right=rop)
@@ -408,87 +410,87 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
             delay = None
             token = ctx.current()
             if token.kind_ == TokenKind.SharpPat:
-                delay = parse_delay(ctx=ctx, src_info=src_info)
-            rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-            return NonBlockingAssignment(ldx=operator.rdx, cdx=operator.cdx,
+                delay = parse_delay(ctx=ctx)
+            rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+            return NonBlockingAssignment(ldx=operator.ldx, cdx=operator.cdx,
                                          tokens=lhs.tokens + [operator] + rop.tokens,
                                          left=lhs,
                                          delay=delay,
                                          right=rop)
     elif operator.kind_ == TokenKind.Equal:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return Equal(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return Equal(ldx=operator.ldx, cdx=operator.cdx,
                      tokens=lhs.tokens + [operator] + rop.tokens,
                      left=lhs,
                      right=rop)
     elif operator.kind_ == TokenKind.InEqual:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return InEqual(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return InEqual(ldx=operator.ldx, cdx=operator.cdx,
                        tokens=lhs.tokens + [operator] + rop.tokens,
                        left=lhs,
                        right=rop)
     elif operator.kind_ == TokenKind.CaseEqual:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return CaseEqual(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return CaseEqual(ldx=operator.ldx, cdx=operator.cdx,
                          tokens=lhs.tokens + [operator] + rop.tokens,
                          left=lhs,
                          right=rop)
     elif operator.kind_ == TokenKind.CaseInEqual:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return CaseInEqual(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return CaseInEqual(ldx=operator.ldx, cdx=operator.cdx,
                            tokens=lhs.tokens + [operator] + rop.tokens,
                            left=lhs,
                            right=rop)
     elif operator.kind_ == TokenKind.WildcardEqual:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return WildcardEqual(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return WildcardEqual(ldx=operator.ldx, cdx=operator.cdx,
                              tokens=lhs.tokens + [operator] + rop.tokens,
                              left=lhs,
                              right=rop)
     elif operator.kind_ == TokenKind.WildcardInEqual:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator))
-        return WildcardInEqual(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator))
+        return WildcardInEqual(ldx=operator.ldx, cdx=operator.cdx,
                                tokens=lhs.tokens + [operator] + rop.tokens,
                                left=lhs,
                                right=rop)
     elif operator.kind_ == TokenKind.BitAnd:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, prefix=False))
-        return BitAnd(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, prefix=False))
+        return BitAnd(ldx=operator.ldx, cdx=operator.cdx,
                       tokens=lhs.tokens + [operator] + rop.tokens,
                       left=lhs,
                       right=rop)
     elif operator.kind_ == TokenKind.BitXor:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, prefix=False))
-        return BitXor(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, prefix=False))
+        return BitXor(ldx=operator.ldx, cdx=operator.cdx,
                       tokens=lhs.tokens + [operator] + rop.tokens,
                       left=lhs,
                       right=rop)
     elif operator.kind_ == TokenKind.BitOr:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, prefix=False))
-        return BitOr(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, prefix=False))
+        return BitOr(ldx=operator.ldx, cdx=operator.cdx,
                      tokens=lhs.tokens + [operator] + rop.tokens,
                      left=lhs,
                      right=rop)
     elif operator.kind_ == TokenKind.LogicAnd:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, prefix=False))
-        return LogicAnd(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, prefix=False))
+        return LogicAnd(ldx=operator.ldx, cdx=operator.cdx,
                         tokens=lhs.tokens + [operator] + rop.tokens,
                         left=lhs,
                         right=rop)
     elif operator.kind_ == TokenKind.LogicOr:
         ctx.consume()
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, prefix=False))
-        return LogicOr(ldx=operator.rdx, cdx=operator.cdx,
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, prefix=False))
+        return LogicOr(ldx=operator.ldx, cdx=operator.cdx,
                        tokens=lhs.tokens + [operator] + rop.tokens,
                        left=lhs,
                        right=rop)
@@ -497,9 +499,9 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return Assignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return Assignment(ldx=operator.ldx, cdx=operator.cdx,
                           tokens=lhs.tokens + [operator] + rop.tokens,
                           left=lhs,
                           delay=delay,
@@ -509,9 +511,9 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return AddAssignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return AddAssignment(ldx=operator.ldx, cdx=operator.cdx,
                              tokens=lhs.tokens + [operator] + rop.tokens,
                              left=lhs,
                              delay=delay,
@@ -521,9 +523,9 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return SubAssignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return SubAssignment(ldx=operator.ldx, cdx=operator.cdx,
                              tokens=lhs.tokens + [operator] + rop.tokens,
                              left=lhs,
                              delay=delay,
@@ -533,9 +535,9 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return MulAssignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return MulAssignment(ldx=operator.ldx, cdx=operator.cdx,
                              tokens=lhs.tokens + [operator] + rop.tokens,
                              left=lhs,
                              delay=delay,
@@ -545,9 +547,9 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return DivAssignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return DivAssignment(ldx=operator.ldx, cdx=operator.cdx,
                              tokens=lhs.tokens + [operator] + rop.tokens,
                              left=lhs,
                              delay=delay,
@@ -557,9 +559,9 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return ModAssignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return ModAssignment(ldx=operator.ldx, cdx=operator.cdx,
                              tokens=lhs.tokens + [operator] + rop.tokens,
                              left=lhs,
                              delay=delay,
@@ -569,9 +571,9 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return BitAndAssignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return BitAndAssignment(ldx=operator.ldx, cdx=operator.cdx,
                                 tokens=lhs.tokens + [operator] + rop.tokens,
                                 left=lhs,
                                 delay=delay,
@@ -581,9 +583,9 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return BitOrAssignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return BitOrAssignment(ldx=operator.ldx, cdx=operator.cdx,
                                tokens=lhs.tokens + [operator] + rop.tokens,
                                left=lhs,
                                delay=delay,
@@ -593,9 +595,9 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return BitXorAssignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return BitXorAssignment(ldx=operator.ldx, cdx=operator.cdx,
                                 tokens=lhs.tokens + [operator] + rop.tokens,
                                 left=lhs,
                                 delay=delay,
@@ -605,9 +607,9 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return LogicLeftShiftAssignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return LogicLeftShiftAssignment(ldx=operator.ldx, cdx=operator.cdx,
                                         tokens=lhs.tokens + [operator] + rop.tokens,
                                         left=lhs,
                                         delay=delay,
@@ -617,9 +619,9 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return LogicRightShiftAssignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return LogicRightShiftAssignment(ldx=operator.ldx, cdx=operator.cdx,
                                          tokens=lhs.tokens + [operator] + rop.tokens,
                                          left=lhs,
                                          delay=delay,
@@ -629,9 +631,9 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return ArithmeticLeftShiftAssignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return ArithmeticLeftShiftAssignment(ldx=operator.ldx, cdx=operator.cdx,
                                              tokens=lhs.tokens + [operator] + rop.tokens,
                                              left=lhs,
                                              delay=delay,
@@ -641,28 +643,28 @@ def led(src_info: SourceInfo, ctx: Context, operator: Token, lhs: Expression, de
         delay = None
         token = ctx.current()
         if token.kind_ == TokenKind.SharpPat:
-            delay = parse_delay(ctx=ctx, src_info=src_info)
-        rop = parse_expression(depth=depth+1, src_info=src_info, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
-        return ArithmeticRightShiftAssignment(ldx=operator.rdx, cdx=operator.cdx,
+            delay = parse_delay(ctx=ctx)
+        rop = parse_expression(depth=depth+1, ctx=ctx, ctx_bp=bp(operator, assign_statement=True))
+        return ArithmeticRightShiftAssignment(ldx=operator.ldx, cdx=operator.cdx,
                                               tokens=lhs.tokens + [operator] + rop.tokens,
                                               left=lhs,
                                               delay=delay,
                                               right=rop)
     else:
         log.fatal(f"syntax error, invalid token `{operator}` as an operator\n"
-                  f"{src_info.error_context(operator.rdx, operator.cdx)}\n")
+                  f"{ctx.src_info.error_context(operator.ldx, operator.cdx)}\n")
         raise ParserError
 
 
-def parse_delay(ctx: Context, src_info: SourceInfo):
+def parse_delay(ctx: Context):
     token = ctx.current()
-    rdx = token.rdx
+    ldx = token.ldx
     cdx = token.cdx
     start_idx = ctx.token_idx
     assert token.kind_ == TokenKind.SharpPat
     ctx.consume()
 
-    duration = parse_expression(depth=1, src_info=src_info, ctx=ctx, ctx_bp=0)
+    duration = parse_expression(depth=1, ctx=ctx, ctx_bp=0)
 
     unit = None
     token = ctx.current()
@@ -672,11 +674,11 @@ def parse_delay(ctx: Context, src_info: SourceInfo):
         ctx.consume()
     end_idx = ctx.token_idx - 1
 
-    return Delay(ldx=rdx, cdx=cdx, tokens=ctx.tokens[start_idx:end_idx+1], duration=duration, unit=unit)
+    return Delay(ldx=ldx, cdx=cdx, tokens=ctx.tokens[start_idx:end_idx+1], duration=duration, unit=unit)
 
 
 if __name__ == "__main__":
-    from lexer_ import Lexer
+    from lexer import Lexer
 
     import json
     import yaml
@@ -695,8 +697,8 @@ if __name__ == "__main__":
                 del data['tokens']
             if 'ldx' in data:
                 del data['ldx']
-            if 'rdx' in data:
-                del data['rdx']
+            if 'ldx' in data:
+                del data['ldx']
             if 'cdx' in data:
                 del data['cdx']
             if 'kind' in data:
@@ -715,7 +717,7 @@ if __name__ == "__main__":
 
     def test(verilog):
         ctx, source_info = init(context=verilog, delete_eof=True)
-        expr = parse_expression(depth=0, src_info=source_info, ctx=ctx, ctx_bp=0)
+        expr = parse_expression(depth=0, ctx=ctx, ctx_bp=0)
         print(expr.tokens_str)
         return expr
 
@@ -810,6 +812,6 @@ if __name__ == "__main__":
                       ~^&|x
 """
     ctx, source_info = init(context=verilog, delete_eof=True)
-    expr = parse_expression(depth=0, src_info=source_info, ctx=ctx, ctx_bp=0)
+    expr = parse_expression(depth=0, ctx=ctx, ctx_bp=0)
     with open("test.yml", 'w', encoding="utf-8") as f:
         get_yml_text(expr, f)
