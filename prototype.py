@@ -1,6 +1,6 @@
 import dataclasses
-import yaml
 import json
+import os
 
 import log
 from lexer import literal_pat_0, literal_pat_1, literal_pat_2
@@ -49,7 +49,7 @@ def extract_module_prototype_info_from_file_to_yml(i: str, o: str, enable_non_an
 def extract_module_prototype_info_from_file(path: str, enable_non_ansi: bool = True) -> list[ModulePrototypeInfo]:
     with open(path, 'r', encoding="utf-8") as f:
         verilog = f.read()
-    parser = Parser(verilog, parse_body=enable_non_ansi)
+    parser = Parser(verilog, path=os.path.abspath(path), parse_body=enable_non_ansi)
     nodes = parser.parse()
     src_info = parser.ctx.src_info
 
@@ -79,7 +79,11 @@ def extract_module_prototype_info_from_node(node: ModuleNode,
             for identifier_array, val in para.identifier_array_val_pairs:
                 para_name = identifier_array.identifier.src
                 if para_name in parameter_s.keys():
-                    log.fatal(f"duplicated parameter name '{para_name}' in module '{node.name}'\n")
+                    log.fatal(f"duplicated parameter name '{para_name}' in module '{node.name}'\n"
+                              f"previous definition:\n"
+                              f"{src_info.error_context(*parameter_s[para_name]["pos"])}\n"
+                              f"this definition:\n"
+                              f"{src_info.error_context(*identifier_array.identifier.pos)}\n")
                     raise ParserError
                 parameter_s[para_name] = {'data_type': para_data_type, 'default_val': val.tokens_str,
                                           'pos': identifier_array.identifier.pos}
@@ -93,7 +97,11 @@ def extract_module_prototype_info_from_node(node: ModuleNode,
             for identifier_array, val in item.identifier_array_val_pairs:
                 para_name = identifier_array.identifier.src
                 if para_name in parameter_s.keys():
-                    log.fatal(f"duplicated parameter name '{para_name}' in module '{node.name}'\n")
+                    log.fatal(f"duplicated parameter name '{para_name}' in module '{node.name}'\n"
+                              f"previous definition:\n"
+                              f"{src_info.error_context(*parameter_s[para_name]["pos"])}\n"
+                              f"this definition:\n"
+                              f"{src_info.error_context(*identifier_array.identifier.pos)}\n")
                     raise ParserError
                 parameter_s[para_name] = {'data_type': para_data_type, 'default_val': val.tokens_str,
                                           'pos': identifier_array.identifier.pos}
@@ -118,16 +126,21 @@ def extract_module_prototype_info_from_node(node: ModuleNode,
                     port_width = None
                 else:
                     port_data_type = port.data_type.tokens_str
-                    port_width, vars = get_width_from_data_type(port.data_type)
-                    for var in vars:
+                    port_width, vars_ = get_width_from_data_type(port.data_type)
+                    for var in vars_:
                         if var not in parameter_s.keys():
                             log.fatal(f"variable '{var}' is not defined as parameter in module '{node.name}', but it "
-                                      f"is used in port's range '{port.data_type.tokens_str}'\n")
+                                      f"is used in port's range '{port.data_type.tokens_str}':\n"
+                                      f"{src_info.error_context(*port.data_type.range_.pos)}\n")
                             raise ParserError
                 for identifier_array in port.array_identifiers:
                     port_name = identifier_array.identifier.src
                     if port_name in port_s.keys():
-                        log.fatal(f"duplicated port name '{port_name}' in module '{node.name}'\n")
+                        log.fatal(f"duplicated port name '{port_name}' in module '{node.name}'\n"
+                                  f"previous definition:\n"
+                                  f"{src_info.error_context(*port_s[port_name]["pos_ansi"])}\n"
+                                  f"this definition:\n"
+                                  f"{src_info.error_context(*identifier_array.identifier.pos)}\n")
                         raise ParserError
                     port_s[port_name] = {'direction': port_direction,
                                          'data_type': port_data_type,
@@ -145,7 +158,11 @@ def extract_module_prototype_info_from_node(node: ModuleNode,
                 assert isinstance(port, NonAnsiPortDefNode)
                 port_name = port.identifier.src
                 if port_name in port_s.keys():
-                    log.fatal(f"duplicated port name '{port_name}' in module '{node.name}'\n")
+                    log.fatal(f"duplicated port name '{port_name}' in module '{node.name}'\n"
+                              f"previous definition:\n"
+                              f"{src_info.error_context(*port_s[port_name]["pos_non_ansi_0"])}\n"
+                              f"this definition:\n"
+                              f"{src_info.error_context(*port.identifier.pos)}\n")
                     raise ParserError
                 port_s[port_name] = {'direction': None,
                                      'data_type': None,
@@ -163,20 +180,26 @@ def extract_module_prototype_info_from_node(node: ModuleNode,
                     width = None
                 else:
                     port_data_type = item.data_type.tokens_str
-                    width, vars = get_width_from_data_type(item.data_type)
-                    for var in vars:
+                    width, vars_ = get_width_from_data_type(item.data_type)
+                    for var in vars_:
                         if var not in parameter_s.keys():
                             log.fatal(f"variable '{var}' is not defined as parameter in module '{node.name}', but it "
-                                      f"is used in port's range '{item.data_type.tokens_str}'\n")
+                                      f"is used in port's range '{item.data_type.tokens_str}':\n"
+                                      f"{src_info.error_context(*item.data_type.range_.pos)}\n")
                             raise ParserError
                 for identifier_array, val in item.identifier_array_val_pairs:
                     port_name = identifier_array.identifier.src
                     if port_name not in port_s.keys():
                         log.fatal(f"in-consistent port definition between Non-ANSI list and module body details, "
-                                  f"'{port_name}' is not defined in the Non-ANSI list for module '{node.name}'.\n")
+                                  f"'{port_name}' is not defined in the Non-ANSI list for module '{node.name}':\n"
+                                  f"{src_info.error_context(*identifier_array.identifier.pos)}\n")
                         raise ParserError
                     if port_s[port_name]["direction"] is not None:
-                        log.fatal(f"duplicated port definition detail '{port_name}' in module '{node.name}'\n")
+                        log.fatal(f"duplicated port definition detail '{port_name}' in module '{node.name}'\n"
+                                  f"previous definition:\n"
+                                  f"{src_info.error_context(*port_s[port_name]["pos_non_ansi_1"])}\n"
+                                  f"this definition:\n"
+                                  f"{src_info.error_context(*identifier_array.identifier.pos)}\n")
                         raise ParserError
                     port_s[port_name]["direction"] = port_direction
                     port_s[port_name]["data_type"] = port_data_type
@@ -186,7 +209,8 @@ def extract_module_prototype_info_from_node(node: ModuleNode,
     port_info_s = []
     for port_name, port_property in port_s.items():
         if port_property["direction"] is None:
-            log.fatal(f"in-complete port definition, the direction is not specified, '{port_name}' in module '{node.name}'\n")
+            log.fatal(f"in-complete port definition, the direction is not specified, '{port_name}' in module '{node.name}'\n"
+                      f"{src_info.error_context(*port_property['pos_non_ansi_0'])}\n")
         port_info = PortInfo(name=port_name,
                              direction=port_property["direction"],
                              data_type=port_property["data_type"],

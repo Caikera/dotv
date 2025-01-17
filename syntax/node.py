@@ -26,6 +26,10 @@ class SyntaxNode:
     def tokens_str(self) -> str:
         return ' '.join(map(lambda x: x.src, self.tokens))
 
+    @property
+    def pos(self) -> (int, int):
+        return self.ldx, self.cdx
+
     def as_dict(self) -> dict:
         return node_as_dict(self)
 

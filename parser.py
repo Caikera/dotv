@@ -505,7 +505,7 @@ class Parser:
     def parse_range_or_index_locally(self, ctx: Context) -> RangeNode | IndexNode:
         token = ctx.current_nn()
         ldx, cdx = token.pos
-
+        start_idx = ctx.token_idx
         assert token.kind_ == TokenKind.LBracket
         ctx.consume()
 
@@ -513,8 +513,9 @@ class Parser:
         token = ctx.current_nn()
 
         if token.kind_ == TokenKind.RBracket:
+            end_idx = ctx.token_idx
             ctx.consume()
-            return IndexNode(ldx=ldx, cdx=cdx, tokens=ctx.tokens[ctx.token_idx-1:ctx.token_idx+1],
+            return IndexNode(ldx=ldx, cdx=cdx, tokens=ctx.tokens[start_idx:end_idx+1],
                              index=expr_0)
 
         if token.kind_ != TokenKind.Colon:
@@ -531,8 +532,9 @@ class Parser:
                       f"{self.error_context(token.ldx, token.cdx)}\n")
             raise ParserError
 
+        end_idx = ctx.token_idx
         ctx.consume()
-        return RangeNode(ldx=ldx, cdx=cdx, tokens=ctx.tokens[ctx.token_idx-1:ctx.token_idx+1],
+        return RangeNode(ldx=ldx, cdx=cdx, tokens=ctx.tokens[start_idx:end_idx+1],
                          left=expr_0, right=expr_1)
 
     def parse_array_identifier_locally(self, ctx: Context):
@@ -1656,7 +1658,7 @@ class Parser:
 
         def consume_until_src_matching_pair(left: list[str], right: list[str]):
             token = ctx.current_nn()
-            assert token in left
+            assert token.src in left
             depth = 0
             while True:
                 token = ctx.current()
